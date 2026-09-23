@@ -61,9 +61,12 @@ def simulate_movie(
                 torch.arange(width, dtype=dtype),
                 indexing="ij",
             )
-            frames[frame] += gaussian_mean(xx, yy, x, y, photons, sigma_x, sigma_y, background)
-            frames[frame] -= background
-        frames[frame] += background
+            # ``gaussian_mean`` includes its uniform background. Add only the
+            # molecule contribution because the frame already has one shared
+            # acquisition background, independent of molecule count.
+            frames[frame] += gaussian_mean(
+                xx, yy, x, y, photons, sigma_x, sigma_y, background
+            ) - background
     if poisson:
         frames = torch.poisson(frames, generator=generator)
     return SyntheticMovie(frames, truth)

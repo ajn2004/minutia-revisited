@@ -7,6 +7,7 @@ from torch import nn
 
 from minutia.detector import CandidateSet, CanonicalDetector, select_candidates
 from minutia.localization import FitResult, localize_candidates
+from minutia.preprocess import subtract_background
 from minutia.quality import QualityConfig, quality_oracle
 from minutia.training import ReplayBuffer, TrainingExample
 
@@ -28,9 +29,27 @@ def run_iteration(
     quality: QualityConfig | None = None,
     learning_rate: float = 1e-2,
     train_steps: int = 1,
+    preprocess: bool = True,
+    preprocessing_method: str = "rolling_ball_approximation",
+    preprocessing_radius: int = 5,
+    minimum_positive_examples: int = 0,
 ) -> IterationResult:
-    """Run one complete fit-guided iteration without host-visible intermediates."""
-    scores = detector.score_frames(frames)
+    """Run one complete, readable fit-guided reference iteration.
+
+    Candidate localization and fit validation deliberately use Python scalar
+    conversions and per-candidate loops.  That makes this path easy to audit,
+    but it is not device-resident end-to-end despite retaining tensors on their
+    input device.  A future fast path must provide the same contract without
+    these host synchronization points.
+    """
+    detector_frames = (
+        subtract_background(
+            frames, radius=preprocessing_radius, method=preprocessing_method
+        )
+        if preprocess
+        else frames
+    )
+    scores = detector.score_frames(detector_frames)
     candidates = select_candidates(scores, threshold=threshold)
     fits = localize_candidates(frames, candidates.as_tensor())
     labels = quality_oracle(fits, candidates.as_tensor(), quality)
@@ -39,7 +58,7 @@ def run_iteration(
         f, x, y = (int(candidates.frame[i]), int(candidates.x[i]), int(candidates.y[i]))
         examples.append(
             TrainingExample(
-                frames[f, y - 3 : y + 4, x - 3 : x + 4].detach(),
+                detector_frames[f, y - 3 : y + 4, x - 3 : x + 4].detach(),
                 bool(labels[i]),
                 f,
                 x,
@@ -50,7 +69,8 @@ def run_iteration(
         )
     replay.add(examples)
     loss_value: float | None = None
-    if replay.examples and train_steps > 0:
+    positives = sum(example.label for example in replay.examples)
+    if replay.examples and train_steps > 0 and positives >= minimum_positive_examples:
         optimizer = torch.optim.Adam(detector.parameters(), lr=learning_rate)
         detector.train()
         patches, target = replay.tensors(device=frames.device)

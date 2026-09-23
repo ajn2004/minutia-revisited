@@ -1,7 +1,12 @@
+import pytest
 import torch
 
-from minutia.detector import CanonicalDetector, select_candidates
+from minutia.detector import CandidateSet, CanonicalDetector, select_candidates
+from minutia.localization import FitResult, localize_candidates
 from minutia.localization.gaussian import gaussian_mean, pixel_integrated_gaussian
+from minutia.pipeline.iterative import TrainingConfig, train_minutia
+from minutia.pipeline.reference import IterationResult
+from minutia.preprocess import subtract_background
 from minutia.sim import simulate_movie
 
 
@@ -45,3 +50,66 @@ def test_gaussian_mean_has_expected_background() -> None:
     mean = gaussian_mean(xx, yy, 4.0, 4.0, 100.0, 1.2, 1.2, 3.0)
     assert torch.all(mean >= 3.0)
     assert mean[4, 4] > mean[0, 0]
+
+
+def test_mle_recovers_known_noise_free_synthetic_parameters() -> None:
+    movie = simulate_movie(
+        n_frames=1,
+        height=32,
+        width=32,
+        molecules_per_frame=1,
+        photons=1600.0,
+        background=4.0,
+        sigma_x=1.25,
+        sigma_y=1.6,
+        poisson=False,
+        seed=8,
+    )
+    truth = movie.molecules[0]
+    candidate = torch.tensor(
+        [[truth.frame, round(truth.x), round(truth.y), 1.0]], dtype=torch.float64
+    )
+    fit = localize_candidates(movie.frames, candidate, iterations=50)
+    estimate = fit.parameters[0]
+    assert bool(fit.valid[0])
+    assert torch.allclose(
+        estimate[:2], torch.tensor([truth.x, truth.y], dtype=estimate.dtype), atol=0.03
+    )
+    expected = torch.tensor(
+        [truth.photons, truth.sigma_x, truth.sigma_y, truth.background], dtype=estimate.dtype
+    )
+    tolerance = torch.tensor([2.0, 0.02, 0.02, 0.02], dtype=estimate.dtype)
+    assert torch.all((estimate[2:] - expected).abs() <= tolerance)
+
+
+def test_preprocessing_method_is_explicit() -> None:
+    frames = torch.ones(1, 9, 9)
+    assert subtract_background(frames).shape == frames.shape
+    with pytest.raises(ValueError, match="method"):
+        subtract_background(frames, method="rolling_ball")
+
+
+def test_all_negative_initialization_has_finite_retry_policy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def all_negative_iteration(*args: object, **kwargs: object) -> IterationResult:
+        empty_candidates = CandidateSet(
+            torch.empty(0, dtype=torch.long),
+            torch.empty(0, dtype=torch.long),
+            torch.empty(0, dtype=torch.long),
+            torch.empty(0),
+        )
+        empty_fit = FitResult(
+            torch.empty((0, 6)),
+            torch.empty((0, 6)),
+            torch.empty(0),
+            torch.empty(0, dtype=torch.bool),
+        )
+        return IterationResult(empty_candidates, empty_fit, torch.empty(0, dtype=torch.bool), None)
+
+    monkeypatch.setattr("minutia.pipeline.iterative.run_iteration", all_negative_iteration)
+    with pytest.raises(RuntimeError, match="initialization attempts"):
+        train_minutia(
+            torch.zeros(1, 16, 16),
+            config=TrainingConfig(iterations=1, max_initialization_attempts=2),
+        )

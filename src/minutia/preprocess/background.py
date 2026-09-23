@@ -1,16 +1,24 @@
-"""Background correction primitives."""
+"""Explicit background preprocessing for the readable reference path."""
 
-import torch
-import torch.nn.functional as F
+from torch import Tensor
+from torch.nn import functional as F
+
+SUPPORTED_METHODS = ("rolling_ball_approximation", "local_mean")
 
 
-def subtract_background(frames: torch.Tensor, radius: int = 5) -> torch.Tensor:
+def subtract_background(
+    frames: Tensor, radius: int = 5, *, method: str = "rolling_ball_approximation"
+) -> Tensor:
     """Subtract a smooth local background, preserving device and dtype.
 
-    This portable approximation is intentionally explicit. The publication's
-    rolling-ball method can be added as a calibrated backend without changing
-    the detector/localizer contract.
+    ``rolling_ball_approximation`` is the default canonical-reference target,
+    but is not a literal rolling-ball implementation: it uses a local mean as
+    a portable approximation. ``local_mean`` is an explicit experimental alias.
+    A calibrated rolling-ball implementation can replace the approximation
+    without changing the detector/localizer contract.
     """
+    if method not in SUPPORTED_METHODS:
+        raise ValueError(f"method must be one of {SUPPORTED_METHODS}")
     if radius < 1:
         raise ValueError("radius must be positive")
     if frames.ndim == 2:

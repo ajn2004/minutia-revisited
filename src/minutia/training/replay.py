@@ -1,4 +1,4 @@
-"""Bounded replay memory with provenance for fit-guided detector training."""
+"""Modern bounded replay memory for fit-guided detector training."""
 
 from dataclasses import dataclass
 
@@ -17,6 +17,12 @@ class TrainingExample:
 
 
 class ReplayBuffer:
+    """Uniformly downsampled bounded memory.
+
+    This is a modern engineering policy, not a claim to reproduce the
+    historical example-retention behavior. The legacy implementation's
+    retention/discarding details are documented separately.
+    """
     def __init__(self, capacity: int = 10000, seed: int = 0) -> None:
         if capacity < 1:
             raise ValueError("capacity must be positive")

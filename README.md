@@ -9,8 +9,8 @@ MINuTIA is unusual because its detector is trained by the downstream physical
 localizer: a proposed image region becomes a positive or negative example
 according to whether its fit satisfies explicit quality tolerances. This
 repository provides a reproducible Python/PyTorch reconstruction of the 2018
-method, preserves historical MATLAB/CUDA sources as archaeology, and develops
-a device-resident detector-to-localizer redesign.
+method, preserves historical MATLAB/CUDA sources as archaeology, and defines a
+future accelerator-resident detector-to-localizer redesign.
 
 ## What is implemented
 
@@ -20,15 +20,20 @@ Gaussian Poisson fitting, Fisher/CRLB uncertainty, and fit-guided replay
 training. Synthetic ordinary and astigmatic PSFs are first-class validation
 data, so no private microscopy files are required.
 
-The modern fast-path contract is `localize_candidates(frames, candidates)`:
+The reference contract is `localize_candidates(frames, candidates)`:
 candidate tensors contain frame, x, y, and detector score and remain on the
-same device as the source frames. The current implementation is a clear
-reference path; CUDA profiling and kernel fusion intentionally come later.
+same device as the source frames. The implementation is readable, not
+end-to-end device-resident: per-candidate Python loops and scalar conversions
+remain. A later ROCm/CUDA/accelerator fast path must cross this contract without
+per-candidate host synchronization.
 
 ## Quick start
 
 ```bash
-uv sync --extra dev
+# Install PyTorch separately from the matching CPU, ROCm, or CUDA distribution.
+# See docs/architecture.md; do not use a generic lock file to choose PyTorch.
+# --inexact preserves the separately installed backend-specific PyTorch.
+uv sync --extra dev --inexact
 uv run pytest
 ```
 

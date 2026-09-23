@@ -17,5 +17,10 @@ classifier.
 9. Repeat over randomized datasets and frames until configured convergence.
 
 A random first detector can produce no good fits. The modern API therefore
-supports a minimum-positive-example safeguard and detector reinitialization.
+supports a finite minimum-positive-example retry policy and detector
+reinitialization. Its bounded `ReplayBuffer` is a modern uniform-retention
+policy, not a reconstruction claim about historical example discarding. The
+current portable preprocessing is explicitly named
+`rolling_ball_approximation`; it targets the paper's rolling-ball step but uses
+a local mean until a calibrated implementation is available.
 Historical variants are documented in `legacy/README.md` and `docs/paper_notes.md`.

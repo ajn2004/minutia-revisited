@@ -13,3 +13,13 @@ Historical code uses rolling-ball subtraction, hand-written Newton-like
 updates, and explicit Fisher inverse expressions. The modern reference uses
 the same pixel-integrated model with readable tensor linear algebra and
 explicit validity flags; it is not a claim of bitwise identity.
+
+The current default preprocessing is named `rolling_ball_approximation`: it is
+a portable local-mean subtraction, not a literal rolling-ball implementation.
+The original rolling-ball behavior remains the canonical target and is exposed
+as an explicit preprocessing boundary rather than being silently implied.
+
+`ReplayBuffer` is a modern uniformly sampled bounded buffer. It is not a
+reproduction claim for the historical retention/discarding policy; the
+historical behavior is treated as evidence and remains documented in
+`legacy/README.md`.

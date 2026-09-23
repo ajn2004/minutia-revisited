@@ -30,6 +30,12 @@ different CUDA snapshot contains a 9×9 loop with 30 hidden units. These remain
 variants, not silent replacements.
 
 The old path materializes detector images, performs peak selection and
-segmentation on the host, then sends copied ROIs to the localizer. The modern
-pipeline exposes `(frame, x, y, score)` tensors and reads fitting windows from
-source frames directly.
+segmentation on the host, then sends copied ROIs to the localizer. The readable
+modern reference exposes `(frame, x, y, score)` tensors and reads fitting
+windows from source frames directly, but still uses Python scalar conversion
+and per-candidate loops. A future ROCm/CUDA/other-accelerator path may remove
+those synchronization points; it is not implemented yet.
+
+The historical learner's example retention is not reproduced by the modern
+uniformly sampled bounded `ReplayBuffer`. The latter is an explicit engineering
+policy and must not be described as historical replay behavior.

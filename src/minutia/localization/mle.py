@@ -50,7 +50,7 @@ def _fit_patch(
         )
 
     optimizer = torch.optim.LBFGS(
-        raw, max_iter=iterations, line_search_fn="strong_wolfe", tolerance_grad=1e-7
+        [raw], max_iter=iterations, line_search_fn="strong_wolfe", tolerance_grad=1e-7
     )
 
     def closure() -> torch.Tensor:

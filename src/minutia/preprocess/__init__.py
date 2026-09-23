@@ -1,3 +1,3 @@
-from .background import subtract_background
+from .background import SUPPORTED_METHODS, subtract_background
 
-__all__ = ["subtract_background"]
+__all__ = ["SUPPORTED_METHODS", "subtract_background"]
