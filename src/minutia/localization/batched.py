@@ -84,6 +84,7 @@ def localize_candidates_batched(
     radius: int = 4,
     iterations: int = 20,
     damping: float = 1e-5,
+    chunk_size: int | None = None,
 ) -> FitResult:
     """Localize all ``(frame, x, y, score)`` candidates with tensor operations.
 
@@ -104,6 +105,27 @@ def localize_candidates_batched(
         raise ValueError("radius, iterations, and damping must be positive")
 
     n = candidates.shape[0]
+    if chunk_size is not None and chunk_size < 1:
+        raise ValueError("chunk_size must be positive when provided")
+    if chunk_size is not None and n > chunk_size:
+        chunks = [
+            localize_candidates_batched(
+                frames,
+                candidates[start : start + chunk_size],
+                radius=radius,
+                iterations=iterations,
+                damping=damping,
+            )
+            for start in range(0, n, chunk_size)
+        ]
+        return FitResult(
+            torch.cat(tuple(chunk.parameters for chunk in chunks), dim=0),
+            torch.cat(tuple(chunk.uncertainty for chunk in chunks), dim=0),
+            torch.cat(tuple(chunk.log_likelihood for chunk in chunks), dim=0),
+            torch.cat(tuple(chunk.valid for chunk in chunks), dim=0),
+            torch.cat(tuple(chunk.fisher for chunk in chunks), dim=0),
+            torch.cat(tuple(chunk.covariance for chunk in chunks), dim=0),
+        )
     dtype, device = frames.dtype, frames.device
     if n == 0:
         empty = torch.empty((0, 6), dtype=dtype, device=device)

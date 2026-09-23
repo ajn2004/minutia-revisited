@@ -7,6 +7,6 @@
 - [x] Add a bounded replay-backed iterative learning loop.
 - [ ] Add comprehensive MLE recovery and end-to-end learning experiments.
 - [ ] Replace the explicit rolling-ball approximation with a calibrated implementation.
-- [ ] Compare the reference path with a genuinely device-resident accelerator path.
+- [x] Compare the reference path with a tensor-native device-resident iteration path.
 - [ ] Consider fused kernels only after profiling and reference-equivalence tests.
 - [ ] Add publication-quality figures and machine-readable experiment reports.

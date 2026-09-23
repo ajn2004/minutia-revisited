@@ -1,3 +1,3 @@
-from .replay import ReplayBuffer, TrainingExample
+from .replay import ReplayBuffer, TensorReplayBuffer, TrainingExample
 
-__all__ = ["ReplayBuffer", "TrainingExample"]
+__all__ = ["ReplayBuffer", "TensorReplayBuffer", "TrainingExample"]

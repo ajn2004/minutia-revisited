@@ -33,6 +33,7 @@ def run_iteration(
     preprocessing_method: str = "rolling_ball_approximation",
     preprocessing_radius: int = 5,
     minimum_positive_examples: int = 0,
+    localization_iterations: int = 20,
 ) -> IterationResult:
     """Run one complete, readable fit-guided reference iteration.
 
@@ -43,15 +44,13 @@ def run_iteration(
     these host synchronization points.
     """
     detector_frames = (
-        subtract_background(
-            frames, radius=preprocessing_radius, method=preprocessing_method
-        )
+        subtract_background(frames, radius=preprocessing_radius, method=preprocessing_method)
         if preprocess
         else frames
     )
     scores = detector.score_frames(detector_frames)
     candidates = select_candidates(scores, threshold=threshold)
-    fits = localize_candidates(frames, candidates.as_tensor())
+    fits = localize_candidates(frames, candidates.as_tensor(), iterations=localization_iterations)
     labels = quality_oracle(fits, candidates.as_tensor(), quality)
     examples: list[TrainingExample] = []
     for i in range(len(candidates.score)):

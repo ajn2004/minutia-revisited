@@ -28,10 +28,28 @@ indexing, runs a damped Newton/Fisher update over an `[N,6]` parameter tensor,
 and returns tensor-valued parameters, uncertainty, Fisher information,
 covariance, likelihood, and validity masks. It uses the same pixel-integrated
 Gaussian model and supports CPU, CUDA, and ROCm through PyTorch's normal
-`torch.cuda` device API. This is a portable batched implementation, not yet a
-claim of an accelerator speedup.
+`torch.cuda` device API. `chunk_size` bounds the temporary candidate working
+set for large batches; it is configurable rather than tuned to a synthetic
+benchmark.
 
-## Future fused detector → localizer design
+## Tensor-native iteration
+
+`run_iteration_batched` is the accelerator-resident/tensor-native path:
+
+```text
+device frames → preprocessing → CanonicalDetector → 5×5 NMS
+              → device candidate tensor → batched MLE/CRLB
+              → tensor quality labels → batched 7×7 gather
+              → TensorReplayBuffer → detector training
+```
+
+The `TensorReplayBuffer` stores patches, labels, coordinates, scores, and fit
+parameters as tensors on one configured device. Capacity retention uses tensor
+indexing. The Python-object `ReplayBuffer` and `run_iteration` remain the
+readable scientific/debugging oracle. This path is accelerator-resident, not
+fused: it uses ordinary portable PyTorch operations and no custom kernels.
+
+## Device-resident detector → localizer boundary (not fused)
 
 ```text
 device frames → detector → device threshold/NMS/compaction
@@ -40,16 +58,17 @@ device frames → detector → device threshold/NMS/compaction
               → device labels and training tensors
 ```
 
-The batched localizer now provides the portable middle step in this design.
-The detector-to-coordinate compaction and direct source-frame/fused localizer
-path remain future work. Candidate coordinates, localization validity checks,
-and labels must remain tensors without per-candidate host synchronization. A
-compact device gather is an implementation optimization rather than a public
-architectural boundary. No custom kernels are part of this change.
+The batched localizer and tensor-native iteration now provide this portable
+device-resident path. Candidate coordinates, localization validity checks,
+labels, replay retention, and training patches remain tensors without
+per-candidate host synchronization. A compact device gather is an
+implementation optimization rather than a public architectural boundary. No
+custom kernels are part of this change.
 
 `benchmarks/benchmark_localization.py` reports elapsed time for the reference
-and batched paths on CPU and, when available, an accelerator. Run it before
-making performance claims.
+and batched paths on CPU and, when available, an accelerator. The complete
+path is measured by `benchmarks/benchmark_pipeline.py`; run it before making
+performance claims.
 
 ## Preprocessing boundary
 
