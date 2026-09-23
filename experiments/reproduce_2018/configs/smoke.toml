@@ -24,3 +24,9 @@ toss_positive_fraction = 0.05
 replay_capacity = 1000
 schedule = "paper_methods"
 execution_path = "batched"
+initialization = "historical_uniform"
+initialization_epsilon = 0.12
+bootstrap_enabled = true
+# Deliberately below the historical-code-scale value so CI exercises retries quickly.
+bootstrap_min_positives = 3
+bootstrap_max_attempts = 100

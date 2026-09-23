@@ -33,6 +33,12 @@ class ExperimentConfig:
     replay_capacity: int
     schedule: str = "paper_methods"
     execution_path: str = "batched"
+    initialization: str = "historical_uniform"
+    initialization_epsilon: float = 0.12
+    bootstrap_enabled: bool = True
+    bootstrap_min_positives: int = 40
+    bootstrap_max_attempts: int = 100
+    training_mode: str = "modern_adam"
 
     @classmethod
     def from_toml(cls, path: str | Path) -> "ExperimentConfig":

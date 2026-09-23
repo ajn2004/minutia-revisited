@@ -5,3 +5,4 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 *.egg-info/
+out/reproduce_2018/medium-dev/truth_classification.json

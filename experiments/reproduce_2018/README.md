@@ -25,6 +25,18 @@ Configurations default to the tensor-batched detector/localization path with
 per-candidate localization oracle; the selected path is recorded in
 `metadata.json`.
 
+The reproduction's first iteration uses the historical bootstrap when
+`bootstrap_enabled = true`: each attempt initializes every ANN parameter,
+including biases, uniformly in `[-initialization_epsilon, +epsilon]`, analyzes
+a new deterministic random subset of source frames, and accumulates fit-guided
+examples without training. Training starts only after `bootstrap_min_positives`
+positives exist;
+the detector is reinitialized between attempts and an exhausted
+`bootstrap_max_attempts` fails loudly. The historical learner's surviving
+code uses a condition equivalent to more than 40 positives, but the numerical
+threshold was not stated by the publication, so it is configurable. The smoke
+configuration uses 3 solely to exercise this mechanism quickly.
+
 ## Terminology and formulas
 
 Matching is frame-by-frame, one-to-one, and uses the configured Euclidean
@@ -44,3 +56,11 @@ The primary `paper_methods` schedule uses 10 frames before iteration 15 and up
 to 1,000 thereafter. `legacy_matlab` is also implemented: 10 frames for
 iterations <5, 50 for 5-14, 500 for 15-24, then 1,000. The optional 5%
 positive-example removal is retained as a historical replay policy.
+
+Every iteration records selected source-frame indices (and bootstrap attempts
+record theirs) in the JSON artifacts. Replay class counts and detector score
+calibration diagnostics are included in each results row. Training uses
+`training_mode = "modern_adam"` by default. The explicitly named
+`historical_objective_lbfgs` mode uses a seeded 90% subset, BCE, weight-only L2
+regularization with lambda 0.3, and at most 100 LBFGS iterations as a practical
+approximation to the surviving MATLAB objective optimizer.

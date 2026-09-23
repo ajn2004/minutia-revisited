@@ -11,10 +11,12 @@ from pathlib import Path
 from time import perf_counter
 
 import torch
+from torch import nn
 
 from minutia.detector import CanonicalDetector
 from minutia.pipeline.batched import run_iteration_batched
 from minutia.pipeline.reference import run_iteration
+from minutia.preprocess import subtract_background
 from minutia.quality import QualityConfig
 from minutia.training import ReplayBuffer, TensorReplayBuffer
 
@@ -80,9 +82,193 @@ def _discard_positive_examples(replay: ReplayBuffer | TensorReplayBuffer, fracti
         replay.examples = [e for i, e in enumerate(replay.examples) if i not in drop]
 
 
+def _initialize_detector(detector: CanonicalDetector, config: ExperimentConfig) -> None:
+    if config.initialization == "historical_uniform":
+        detector.initialize_historical_uniform(config.initialization_epsilon)
+    else:
+        raise ValueError(f"unknown detector initialization: {config.initialization}")
+
+
+def _replay_counts(replay: ReplayBuffer | TensorReplayBuffer) -> tuple[int, int]:
+    if isinstance(replay, TensorReplayBuffer):
+        positives = int(replay.labels.sum())
+        return positives, replay.num_examples - positives
+    positives = sum(example.label for example in replay.examples)
+    return positives, len(replay.examples) - positives
+
+
+def select_frame_indices(
+    n_frames: int, count: int, *, seed: int, iteration: int, attempt: int = 0
+) -> torch.Tensor:
+    """Select a reproducible, unique random subset of source-frame indices."""
+    if not 0 < count <= n_frames:
+        raise ValueError(f"count must be in [1, {n_frames}], got {count}")
+    generator = torch.Generator().manual_seed(
+        seed + 1_000_003 * iteration + 10_007 * attempt
+    )
+    return torch.randperm(n_frames, generator=generator)[:count]
+
+
+def _remap_truths(movie: object, source_indices: torch.Tensor) -> list[object]:
+    """Return selected truths with frame numbers changed to batch-local indices."""
+    source_to_batch = {int(source): batch for batch, source in enumerate(source_indices.tolist())}
+    return [
+        type(truth)(source_to_batch[truth.frame], truth.x, truth.y, truth.photons,
+                    truth.sigma_x, truth.sigma_y, truth.background)
+        for truth in movie.molecules
+        if truth.frame in source_to_batch
+    ]
+
+
+def _detector_diagnostics(
+    frames: torch.Tensor, truths: list[object], detector: CanonicalDetector
+) -> dict[str, float]:
+    """Measure score calibration before thresholding, including truth-centered scores."""
+    detector_frames = subtract_background(frames, radius=5, method="rolling_ball_approximation")
+    with torch.no_grad():
+        scores = detector.score_frames(detector_frames)
+        values = scores.reshape(-1)
+        truth_scores = torch.stack([
+            scores[truth.frame,
+                   max(3, min(frames.shape[-2] - 4, round(truth.y))),
+                   max(3, min(frames.shape[-1] - 4, round(truth.x)))]
+            for truth in truths
+        ]) if truths else torch.empty(0, device=frames.device)
+    def stat(tensor: torch.Tensor, reducer: str) -> float:
+        if not tensor.numel():
+            return 0.0
+        return float(getattr(tensor, reducer)())
+    return {
+        "score_min": stat(values, "min"),
+        "score_mean": stat(values, "mean"),
+        "score_median": stat(values, "median"),
+        "score_max": stat(values, "max"),
+        "fraction_score_above_0_5": float((values > 0.5).to(torch.float32).mean())
+        if values.numel() else 0.0,
+        "truth_score_mean": stat(truth_scores, "mean"),
+        "truth_score_median": stat(truth_scores, "median"),
+        "truth_score_min": stat(truth_scores, "min"),
+        "truth_score_max": stat(truth_scores, "max"),
+    }
+
+
+def _train_replay(
+    detector: CanonicalDetector,
+    replay: ReplayBuffer | TensorReplayBuffer,
+    *,
+    learning_rate: float,
+    train_steps: int,
+    mode: str = "modern_adam",
+    seed: int = 0,
+    iteration: int = 0,
+) -> float | torch.Tensor:
+    """Train once on accumulated bootstrap examples, after the gate passes."""
+    if train_steps <= 0 or (replay.num_examples if isinstance(replay, TensorReplayBuffer)
+                            else len(replay.examples)) == 0:
+        return torch.zeros(()) if isinstance(replay, TensorReplayBuffer) else 0.0
+    detector.train()
+    if isinstance(replay, TensorReplayBuffer):
+        patches, target = replay.training_tensors()
+    else:
+        patches, target = replay.tensors()
+    if mode == "modern_adam":
+        optimizer = torch.optim.Adam(detector.parameters(), lr=learning_rate)
+        loss: torch.Tensor | None = None
+        for _ in range(train_steps):
+            optimizer.zero_grad()
+            prediction = detector(patches)
+            loss = nn.functional.binary_cross_entropy(prediction, target)
+            loss.backward()
+            optimizer.step()
+    elif mode == "historical_objective_lbfgs":
+        generator = torch.Generator(device=patches.device).manual_seed(seed + iteration)
+        subset_size = max(1, int(0.9 * patches.shape[0]))
+        indices = torch.randperm(patches.shape[0], generator=generator, device=patches.device)[:subset_size]
+        patches, target = patches[indices], target[indices]
+        optimizer = torch.optim.LBFGS(
+            detector.parameters(), max_iter=100, line_search_fn="strong_wolfe"
+        )
+        def objective() -> torch.Tensor:
+            optimizer.zero_grad()
+            prediction = detector(patches)
+            loss = nn.functional.binary_cross_entropy(prediction, target)
+            loss = loss + 0.3 / (2 * patches.shape[0]) * (
+                detector.hidden.weight.square().sum() + detector.output.weight.square().sum()
+            )
+            loss.backward()
+            return loss
+        loss = optimizer.step(objective).detach()
+    else:
+        raise ValueError(f"unknown training mode: {mode}")
+    assert loss is not None
+    return loss.detach()
+
+
+def _bootstrap(
+    config: ExperimentConfig,
+    movie: object,
+    detector: CanonicalDetector,
+    replay: ReplayBuffer | TensorReplayBuffer,
+    iteration_runner: object,
+    quality: QualityConfig,
+) -> tuple[object, list[dict[str, object]]]:
+    """Run the historical first-iteration positive-example bootstrap."""
+    if config.bootstrap_min_positives < 0:
+        raise ValueError("bootstrap_min_positives must be non-negative")
+    if config.bootstrap_max_attempts < 1:
+        raise ValueError("bootstrap_max_attempts must be positive")
+    if isinstance(replay, TensorReplayBuffer):
+        replay.clear()
+    else:
+        replay.examples.clear()
+    records: list[dict[str, object]] = []
+    last_result: object | None = None
+    for attempt in range(1, config.bootstrap_max_attempts + 1):
+        _initialize_detector(detector, config)
+        count = frames_for_iteration(config.schedule, 1, config.n_frames)
+        count = min(count, movie.frames.shape[0])
+        selected = select_frame_indices(
+            movie.frames.shape[0], count, seed=config.seed, iteration=1, attempt=attempt
+        ).to(movie.frames.device)
+        attempt_frames = movie.frames[selected]
+        last_result = iteration_runner(
+            attempt_frames, detector, replay, threshold=config.detector_threshold,
+            quality=quality, learning_rate=config.learning_rate, train_steps=0,
+            preprocessing_radius=5, minimum_positive_examples=0,
+            localization_iterations=config.mle_iterations,
+        )
+        positives, negatives = _replay_counts(replay)
+        record = {
+            "bootstrap_attempt": attempt,
+            "candidates": int(last_result.candidates.score.shape[0]),
+            "positives_this_attempt": int(last_result.labels.sum()),
+            "accumulated_positives": positives,
+            "accumulated_negatives": negatives,
+            "source_frame_indices": selected.tolist(),
+        }
+        records.append(record)
+        print("bootstrap=" + " ".join(f"{key}={value}" for key, value in record.items()))
+        if positives >= config.bootstrap_min_positives:
+            _train_replay(
+                detector, replay, learning_rate=config.learning_rate,
+                train_steps=config.train_steps,
+                mode=config.training_mode, seed=config.seed, iteration=attempt,
+            )
+            return last_result, records
+    raise RuntimeError(
+        "historical detector bootstrap exhausted "
+        f"{config.bootstrap_max_attempts} attempts before reaching "
+        f"{config.bootstrap_min_positives} positive examples"
+    )
+
+
 def run(config: ExperimentConfig, output: Path) -> list[dict[str, object]]:
     if config.execution_path not in {"batched", "reference"}:
         raise ValueError("execution_path must be 'batched' or 'reference'")
+    if config.training_mode not in {"modern_adam", "historical_objective_lbfgs"}:
+        raise ValueError(
+            "training_mode must be 'modern_adam' or 'historical_objective_lbfgs'"
+        )
     torch.manual_seed(config.seed)
     simulation_started = perf_counter()
     movie = generate_movie(config)
@@ -104,29 +290,55 @@ def run(config: ExperimentConfig, output: Path) -> list[dict[str, object]]:
     quality = QualityConfig()
     rows: list[dict[str, object]] = []
     truth_records: list[dict[str, object]] = []
+    bootstrap_records: list[dict[str, object]] = []
     for iteration in range(1, config.iterations + 1):
         iteration_started = perf_counter()
         count = frames_for_iteration(config.schedule, iteration, config.n_frames)
-        frames = movie.frames[:count]
-        truths = [m for m in movie.molecules if m.frame < count]
+        source_indices = select_frame_indices(
+            movie.frames.shape[0], count, seed=config.seed, iteration=iteration
+        ).to(movie.frames.device)
+        frames = movie.frames[source_indices]
+        truths = _remap_truths(movie, source_indices)
+        if iteration == 1 and not config.bootstrap_enabled:
+            _initialize_detector(detector, config)
+        detector_diagnostics = _detector_diagnostics(frames, truths, detector)
         print(
             f"iteration={iteration} frames={count} candidates=",
             end="",
             flush=True,
         )
-        result = iteration_runner(
-            frames,
-            detector,
-            replay,
-            threshold=config.detector_threshold,
-            quality=quality,
-            learning_rate=config.learning_rate,
-            train_steps=config.train_steps,
-            preprocessing_radius=5,
-            minimum_positive_examples=0,
-            localization_iterations=config.mle_iterations,
-            progress=lambda candidate_count: print(candidate_count, flush=True),
-        )
+        if iteration == 1 and config.bootstrap_enabled:
+            result, attempt_records = _bootstrap(
+                config, movie, detector, replay, iteration_runner, quality
+            )
+            bootstrap_records.extend(attempt_records)
+            source_indices = torch.tensor(
+                attempt_records[-1]["source_frame_indices"], device=movie.frames.device
+            )
+            frames = movie.frames[source_indices]
+            truths = _remap_truths(movie, source_indices)
+            detector_diagnostics = _detector_diagnostics(frames, truths, detector)
+        else:
+            result = iteration_runner(
+                frames,
+                detector,
+                replay,
+                threshold=config.detector_threshold,
+                quality=quality,
+                learning_rate=config.learning_rate,
+                train_steps=0,
+                preprocessing_radius=5,
+                minimum_positive_examples=0,
+                localization_iterations=config.mle_iterations,
+                progress=lambda candidate_count: print(candidate_count, flush=True),
+            )
+            training_started = perf_counter()
+            _train_replay(
+                detector, replay, learning_rate=config.learning_rate,
+                train_steps=config.train_steps, mode=config.training_mode,
+                seed=config.seed, iteration=iteration,
+            )
+            result.timings["replay_training_seconds"] += perf_counter() - training_started
         matching_started = perf_counter()
         candidate_tensor = result.candidates.as_tensor()
         # Fit parameters contain image x/y; retain the candidate frame index.
@@ -153,6 +365,7 @@ def run(config: ExperimentConfig, output: Path) -> list[dict[str, object]]:
                 "regime": config.name,
                 "iteration": iteration,
                 "frame": truth.frame,
+                "source_frame": int(source_indices[truth.frame]),
                 "photon_count": truth.photons,
                 "background": truth.background,
                 "photon_over_sqrt_background": truth.photons / (truth.background**0.5),
@@ -181,7 +394,17 @@ def run(config: ExperimentConfig, output: Path) -> list[dict[str, object]]:
             "mean_photons_sqrt_offset_missed": _mean_signal_proxy(missed),
             "simulation_seconds": simulation_seconds,
             "truth_matching_metrics_seconds": matching_metrics_seconds,
+            "source_frame_indices": json.dumps(source_indices.tolist()),
         }
+        row.update(detector_diagnostics)
+        positive_count, negative_count = _replay_counts(replay)
+        row.update({
+            "replay_positive_examples": positive_count,
+            "replay_negative_examples": negative_count,
+            "replay_positive_fraction": positive_count / (positive_count + negative_count)
+            if positive_count + negative_count else 0.0,
+            "training_mode": config.training_mode,
+        })
         row.update(metrics.as_dict())
         row.update(getattr(result, "timings", {}))
         # The movie is generated once, before iteration one. Repeat the value
@@ -238,6 +461,11 @@ def run(config: ExperimentConfig, output: Path) -> list[dict[str, object]]:
         "device": str(movie.frames.device),
         "backend": "cpu",
         "execution_path": config.execution_path,
+        "bootstrap_attempts": bootstrap_records,
+        "training_mode": config.training_mode,
+        "selected_source_frame_indices": [
+            json.loads(row["source_frame_indices"]) for row in rows
+        ],
     }
     (output / "metadata.json").write_text(json.dumps(metadata, indent=2, default=str))
     (output / "ground_truth.json").write_text(

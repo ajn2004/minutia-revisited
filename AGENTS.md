@@ -1143,3 +1143,6 @@ The modern repository should make it possible to understand:
 4. where the historical implementation was inefficient,
 5. how a modern device-resident architecture improves the systems design,
 6. which later ideas are faithful modernization versus new research.
+
+## 36. Additional Information
+1. This repo is managed by JJ, always make a description detailing the changes made to the update`

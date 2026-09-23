@@ -1,0 +1,232 @@
+{
+  "config": {
+    "name": "medium_snr",
+    "provenance": "paper_guided surrogate; FPALM distribution unavailable",
+    "seed": 201806,
+    "n_frames": 1000,
+    "height": 32,
+    "width": 32,
+    "molecules_per_frame": 2,
+    "iterations": 20,
+    "frames_per_iteration": 10,
+    "photon_mean": 230.0,
+    "photon_std": 60.0,
+    "background_mean": 5.0,
+    "background_std": 0.8,
+    "sigma_x": 1.25,
+    "sigma_y": 1.25,
+    "sigma_std": 0.1,
+    "poisson": true,
+    "matching_radius": 1.0,
+    "detector_threshold": 0.5,
+    "mle_iterations": 20,
+    "train_steps": 1,
+    "learning_rate": 0.01,
+    "toss_positive_fraction": 0.05,
+    "replay_capacity": 100000,
+    "schedule": "paper_methods",
+    "execution_path": "batched",
+    "initialization": "historical_uniform",
+    "initialization_epsilon": 0.12,
+    "bootstrap_enabled": true,
+    "bootstrap_min_positives": 40,
+    "bootstrap_max_attempts": 100
+  },
+  "seed": 201806,
+  "git_commit": "037524ba2c2cbdca02c9625cf8657027b3fda20f",
+  "torch_version": "2.14.0+cu130",
+  "device": "cpu",
+  "backend": "cpu",
+  "execution_path": "batched",
+  "bootstrap_attempts": [
+    {
+      "bootstrap_attempt": 1,
+      "candidates": 243,
+      "positives_this_attempt": 2,
+      "accumulated_positives": 2,
+      "accumulated_negatives": 241
+    },
+    {
+      "bootstrap_attempt": 2,
+      "candidates": 274,
+      "positives_this_attempt": 1,
+      "accumulated_positives": 3,
+      "accumulated_negatives": 514
+    },
+    {
+      "bootstrap_attempt": 3,
+      "candidates": 5,
+      "positives_this_attempt": 0,
+      "accumulated_positives": 3,
+      "accumulated_negatives": 519
+    },
+    {
+      "bootstrap_attempt": 4,
+      "candidates": 294,
+      "positives_this_attempt": 5,
+      "accumulated_positives": 8,
+      "accumulated_negatives": 808
+    },
+    {
+      "bootstrap_attempt": 5,
+      "candidates": 319,
+      "positives_this_attempt": 7,
+      "accumulated_positives": 15,
+      "accumulated_negatives": 1120
+    },
+    {
+      "bootstrap_attempt": 6,
+      "candidates": 10,
+      "positives_this_attempt": 2,
+      "accumulated_positives": 17,
+      "accumulated_negatives": 1128
+    },
+    {
+      "bootstrap_attempt": 7,
+      "candidates": 280,
+      "positives_this_attempt": 1,
+      "accumulated_positives": 18,
+      "accumulated_negatives": 1407
+    },
+    {
+      "bootstrap_attempt": 8,
+      "candidates": 262,
+      "positives_this_attempt": 0,
+      "accumulated_positives": 18,
+      "accumulated_negatives": 1669
+    },
+    {
+      "bootstrap_attempt": 9,
+      "candidates": 268,
+      "positives_this_attempt": 0,
+      "accumulated_positives": 18,
+      "accumulated_negatives": 1937
+    },
+    {
+      "bootstrap_attempt": 10,
+      "candidates": 102,
+      "positives_this_attempt": 5,
+      "accumulated_positives": 23,
+      "accumulated_negatives": 2034
+    },
+    {
+      "bootstrap_attempt": 11,
+      "candidates": 130,
+      "positives_this_attempt": 4,
+      "accumulated_positives": 27,
+      "accumulated_negatives": 2160
+    },
+    {
+      "bootstrap_attempt": 12,
+      "candidates": 267,
+      "positives_this_attempt": 1,
+      "accumulated_positives": 28,
+      "accumulated_negatives": 2426
+    },
+    {
+      "bootstrap_attempt": 13,
+      "candidates": 296,
+      "positives_this_attempt": 0,
+      "accumulated_positives": 28,
+      "accumulated_negatives": 2722
+    },
+    {
+      "bootstrap_attempt": 14,
+      "candidates": 249,
+      "positives_this_attempt": 1,
+      "accumulated_positives": 29,
+      "accumulated_negatives": 2970
+    },
+    {
+      "bootstrap_attempt": 15,
+      "candidates": 243,
+      "positives_this_attempt": 0,
+      "accumulated_positives": 29,
+      "accumulated_negatives": 3213
+    },
+    {
+      "bootstrap_attempt": 16,
+      "candidates": 24,
+      "positives_this_attempt": 0,
+      "accumulated_positives": 29,
+      "accumulated_negatives": 3237
+    },
+    {
+      "bootstrap_attempt": 17,
+      "candidates": 236,
+      "positives_this_attempt": 1,
+      "accumulated_positives": 30,
+      "accumulated_negatives": 3472
+    },
+    {
+      "bootstrap_attempt": 18,
+      "candidates": 304,
+      "positives_this_attempt": 0,
+      "accumulated_positives": 30,
+      "accumulated_negatives": 3776
+    },
+    {
+      "bootstrap_attempt": 19,
+      "candidates": 284,
+      "positives_this_attempt": 0,
+      "accumulated_positives": 30,
+      "accumulated_negatives": 4060
+    },
+    {
+      "bootstrap_attempt": 20,
+      "candidates": 0,
+      "positives_this_attempt": 0,
+      "accumulated_positives": 30,
+      "accumulated_negatives": 4060
+    },
+    {
+      "bootstrap_attempt": 21,
+      "candidates": 68,
+      "positives_this_attempt": 0,
+      "accumulated_positives": 30,
+      "accumulated_negatives": 4128
+    },
+    {
+      "bootstrap_attempt": 22,
+      "candidates": 214,
+      "positives_this_attempt": 0,
+      "accumulated_positives": 30,
+      "accumulated_negatives": 4342
+    },
+    {
+      "bootstrap_attempt": 23,
+      "candidates": 1,
+      "positives_this_attempt": 0,
+      "accumulated_positives": 30,
+      "accumulated_negatives": 4343
+    },
+    {
+      "bootstrap_attempt": 24,
+      "candidates": 0,
+      "positives_this_attempt": 0,
+      "accumulated_positives": 30,
+      "accumulated_negatives": 4343
+    },
+    {
+      "bootstrap_attempt": 25,
+      "candidates": 289,
+      "positives_this_attempt": 7,
+      "accumulated_positives": 37,
+      "accumulated_negatives": 4625
+    },
+    {
+      "bootstrap_attempt": 26,
+      "candidates": 295,
+      "positives_this_attempt": 2,
+      "accumulated_positives": 39,
+      "accumulated_negatives": 4918
+    },
+    {
+      "bootstrap_attempt": 27,
+      "candidates": 298,
+      "positives_this_attempt": 3,
+      "accumulated_positives": 42,
+      "accumulated_negatives": 5213
+    }
+  ]
+}

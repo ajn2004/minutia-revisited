@@ -14,6 +14,22 @@ class CanonicalDetector(nn.Module):
         self.hidden = nn.Linear(49, hidden_units)
         self.output = nn.Linear(hidden_units, 1)
 
+    def initialize_historical_uniform(self, epsilon: float = 0.12) -> None:
+        """Initialize parameters as in the historical ``Neural_Learning.m``.
+
+        This is intentionally an explicit opt-in rather than the module's
+        default initialization.  The MATLAB learner sampled both weight
+        arrays, including their bias columns, uniformly from
+        ``[-epsilon, epsilon]``.
+        """
+        if epsilon <= 0:
+            raise ValueError("epsilon must be positive")
+        with torch.no_grad():
+            self.hidden.weight.uniform_(-epsilon, epsilon)
+            self.hidden.bias.uniform_(-epsilon, epsilon)
+            self.output.weight.uniform_(-epsilon, epsilon)
+            self.output.bias.uniform_(-epsilon, epsilon)
+
     def forward(self, patches: torch.Tensor) -> torch.Tensor:
         if patches.shape[-2:] != (7, 7):
             raise ValueError(f"expected (..., 7, 7), got {tuple(patches.shape)}")

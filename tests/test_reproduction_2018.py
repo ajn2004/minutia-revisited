@@ -1,11 +1,14 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 import torch
 
 from experiments.reproduce_2018.config import ExperimentConfig, frames_for_iteration
 from experiments.reproduce_2018.metrics import calculate_metrics, match_truths
 from experiments.reproduce_2018.run import run
+from minutia.detector import CanonicalDetector
 from minutia.sim import Molecule
+from minutia.training import ReplayBuffer, TrainingExample
 
 
 def molecule(frame: int, x: float, y: float) -> Molecule:
@@ -73,3 +76,50 @@ def test_smoke_reproduction_uses_batched_path(tmp_path: Path) -> None:
     ):
         assert key in rows[0]
     assert '"execution_path": "batched"' in (tmp_path / "smoke" / "metadata.json").read_text()
+
+
+def test_historical_initialization_and_bootstrap_gate(monkeypatch) -> None:
+    """The reproduction must not optimize an all-negative bootstrap set."""
+    detector = CanonicalDetector()
+    detector.initialize_historical_uniform()
+    assert all(
+        bool(torch.all(parameter <= 0.12) and torch.all(parameter >= -0.12))
+        for parameter in detector.parameters()
+    )
+
+    from experiments.reproduce_2018 import run as reproduction
+
+    original_train = reproduction._train_replay
+    train_calls: list[int] = []
+
+    def record_train(*args, **kwargs):
+        train_calls.append(1)
+        return original_train(*args, **kwargs)
+
+    monkeypatch.setattr(reproduction, "_train_replay", record_train)
+    config = ExperimentConfig.from_toml("experiments/reproduce_2018/configs/smoke.toml")
+    config = config.__class__(**{
+        **config.__dict__, "bootstrap_min_positives": 1, "bootstrap_max_attempts": 2
+    })
+    replay = ReplayBuffer()
+    calls = 0
+
+    def fake_iteration(frames, _detector, replay, **kwargs):
+        nonlocal calls
+        calls += 1
+        label = calls == 2
+        replay.add([TrainingExample(torch.zeros(7, 7), label, 0, 3, 3, 0.5,
+                                    torch.zeros(6))])
+        return SimpleNamespace(
+            candidates=SimpleNamespace(score=torch.ones(1)),
+            labels=torch.tensor([label]),
+        )
+
+    movie = SimpleNamespace(frames=torch.zeros(2, 16, 16))
+    detector = CanonicalDetector()
+    result, attempts = reproduction._bootstrap(
+        config, movie, detector, replay, fake_iteration, reproduction.QualityConfig()
+    )
+    assert result is not None
+    assert [record["accumulated_positives"] for record in attempts] == [0, 1]
+    assert len(train_calls) == 1  # no optimizer call occurred during attempt 1
