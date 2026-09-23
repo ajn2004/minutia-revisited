@@ -13,6 +13,18 @@ The output contains `metadata.json`, `results.json`, `results.csv`, and a
 four-panel `figure5_style.png` generated from the CSV. Full configurations
 target 10,000 frames; `smoke.toml` is intentionally small for CI.
 
+Each results row contains separate detector (pre-tolerance) and accepted
+(post-tolerance) TP/FP/FN counts and rates. The Figure 5-style plot uses the
+accepted rates; `fit_success_fraction` remains the independent fraction of
+detector identifications passing the quality oracle. Rows also include seconds
+for simulation, preprocessing/detection/NMS, localization, quality-oracle,
+truth-matching/metrics, replay/training, and total iteration time.
+
+Configurations default to the tensor-batched detector/localization path with
+`execution_path = "batched"`. Set it to `"reference"` to use the readable
+per-candidate localization oracle; the selected path is recorded in
+`metadata.json`.
+
 ## Terminology and formulas
 
 Matching is frame-by-frame, one-to-one, and uses the configured Euclidean

@@ -32,6 +32,7 @@ class ExperimentConfig:
     toss_positive_fraction: float
     replay_capacity: int
     schedule: str = "paper_methods"
+    execution_path: str = "batched"
 
     @classmethod
     def from_toml(cls, path: str | Path) -> "ExperimentConfig":

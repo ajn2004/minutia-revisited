@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from time import perf_counter
 
 import torch
 from torch import nn
@@ -22,6 +24,7 @@ class BatchedIterationResult:
     loss: torch.Tensor
     positive_count: torch.Tensor
     candidate_count: torch.Tensor
+    timings: dict[str, float]
 
 
 def gather_training_patches(
@@ -57,6 +60,7 @@ def run_iteration_batched(
     minimum_positive_examples: int = 0,
     localization_chunk_size: int | None = None,
     localization_iterations: int = 20,
+    progress: Callable[[int], None] | None = None,
 ) -> BatchedIterationResult:
     """Run one MINuTIA iteration without per-candidate host synchronization.
 
@@ -65,6 +69,8 @@ def run_iteration_batched(
     """
     if frames.device != replay.device:
         raise ValueError("frames and replay must use the same device")
+    started = perf_counter()
+    preprocess_started = perf_counter()
     detector_frames = (
         subtract_background(
             frames, radius=preprocessing_radius, method=preprocessing_method
@@ -74,14 +80,22 @@ def run_iteration_batched(
     )
     scores = detector.score_frames(detector_frames)
     candidates = select_candidates(scores, threshold=threshold)
+    preprocessing_detection_nms_seconds = perf_counter() - preprocess_started
+    if progress is not None:
+        progress(len(candidates.score))
     candidate_tensor = candidates.as_tensor()
+    localization_started = perf_counter()
     fits = localize_candidates_batched(
         frames,
         candidate_tensor,
         iterations=localization_iterations,
         chunk_size=localization_chunk_size,
     )
+    localization_seconds = perf_counter() - localization_started
+    quality_started = perf_counter()
     labels = quality_oracle(fits, candidate_tensor, quality)
+    quality_oracle_seconds = perf_counter() - quality_started
+    replay_started = perf_counter()
     patches = gather_training_patches(detector_frames, candidate_tensor)
     replay.add(
         patches,
@@ -107,6 +121,19 @@ def run_iteration_batched(
             loss = nn.functional.binary_cross_entropy(prediction, target) * should_train
             loss.backward()
             optimizer.step()
+    replay_training_seconds = perf_counter() - replay_started
     return BatchedIterationResult(
-        candidates, fits, labels, loss, positive_count, candidate_count
+        candidates=candidates,
+        fits=fits,
+        labels=labels,
+        loss=loss,
+        positive_count=positive_count,
+        candidate_count=candidate_count,
+        timings={
+            "preprocessing_detection_nms_seconds": preprocessing_detection_nms_seconds,
+            "localization_seconds": localization_seconds,
+            "quality_oracle_seconds": quality_oracle_seconds,
+            "replay_training_seconds": replay_training_seconds,
+            "total_iteration_seconds": perf_counter() - started,
+        }
     )

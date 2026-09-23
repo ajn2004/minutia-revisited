@@ -1,6 +1,8 @@
 """Reference detector → coordinate → localizer learning iteration."""
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from time import perf_counter
 
 import torch
 from torch import nn
@@ -18,6 +20,7 @@ class IterationResult:
     fits: FitResult
     labels: torch.Tensor
     loss: float | None
+    timings: dict[str, float]
 
 
 def run_iteration(
@@ -34,6 +37,7 @@ def run_iteration(
     preprocessing_radius: int = 5,
     minimum_positive_examples: int = 0,
     localization_iterations: int = 20,
+    progress: Callable[[int], None] | None = None,
 ) -> IterationResult:
     """Run one complete, readable fit-guided reference iteration.
 
@@ -43,6 +47,8 @@ def run_iteration(
     input device.  A future fast path must provide the same contract without
     these host synchronization points.
     """
+    started = perf_counter()
+    preprocessing_started = perf_counter()
     detector_frames = (
         subtract_background(frames, radius=preprocessing_radius, method=preprocessing_method)
         if preprocess
@@ -50,8 +56,16 @@ def run_iteration(
     )
     scores = detector.score_frames(detector_frames)
     candidates = select_candidates(scores, threshold=threshold)
+    preprocessing_detection_nms_seconds = perf_counter() - preprocessing_started
+    if progress is not None:
+        progress(len(candidates.score))
+    localization_started = perf_counter()
     fits = localize_candidates(frames, candidates.as_tensor(), iterations=localization_iterations)
+    localization_seconds = perf_counter() - localization_started
+    quality_started = perf_counter()
     labels = quality_oracle(fits, candidates.as_tensor(), quality)
+    quality_oracle_seconds = perf_counter() - quality_started
+    replay_started = perf_counter()
     examples: list[TrainingExample] = []
     for i in range(len(candidates.score)):
         f, x, y = (int(candidates.frame[i]), int(candidates.x[i]), int(candidates.y[i]))
@@ -62,7 +76,7 @@ def run_iteration(
                 f,
                 x,
                 y,
-                float(candidates.score[i]),
+                float(candidates.score[i].detach()),
                 fits.parameters[i].detach(),
             )
         )
@@ -80,4 +94,16 @@ def run_iteration(
             loss.backward()
             optimizer.step()
             loss_value = float(loss.detach())
-    return IterationResult(candidates, fits, labels, loss_value)
+    return IterationResult(
+        candidates,
+        fits,
+        labels,
+        loss_value,
+        {
+            "preprocessing_detection_nms_seconds": preprocessing_detection_nms_seconds,
+            "localization_seconds": localization_seconds,
+            "quality_oracle_seconds": quality_oracle_seconds,
+            "replay_training_seconds": perf_counter() - replay_started,
+            "total_iteration_seconds": perf_counter() - started,
+        },
+    )

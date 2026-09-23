@@ -15,13 +15,13 @@ def plot_learning_curves(csv_path: str | Path, output_path: str | Path) -> None:
         x = [int(row["iteration"]) for row in subset]
         ax.plot(
             x,
-            [float(row["detection_efficiency"]) for row in subset],
-            label="detection efficiency / recall",
+            [float(row["accepted_detection_efficiency"]) for row in subset],
+            label="accepted detection efficiency / recall",
         )
         ax.plot(
             x,
-            [float(row["false_identification_fraction"]) for row in subset],
-            label="false-identification fraction",
+            [float(row["accepted_false_identification_fraction"]) for row in subset],
+            label="accepted false-identification fraction",
         )
         ax.set_title(name)
         ax.set_xlabel("training iteration")

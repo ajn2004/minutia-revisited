@@ -21,28 +21,61 @@ class MatchResult:
 
 @dataclass(frozen=True)
 class Metrics:
-    true_positives: int
-    false_positives: int
-    false_negatives: int
+    detector_true_positives: int
+    detector_false_positives: int
+    detector_false_negatives: int
+    detector_detection_efficiency: float
+    detector_false_identification_fraction: float
+    accepted_true_positives: int
+    accepted_false_positives: int
+    accepted_false_negatives: int
+    accepted_detection_efficiency: float
+    accepted_false_identification_fraction: float
     total_detector_identifications: int
     identifications_passing_fit_tolerances: int
     known_molecules: int
     identification_precision: float
-    false_identification_fraction: float
-    detection_efficiency: float
     fit_success_fraction: float
+
+    # Compatibility aliases for callers that used the original one-stage
+    # metrics.  Figure-5 reporting should use the explicitly named accepted
+    # (post-tolerance) fields instead.
+    @property
+    def true_positives(self) -> int:
+        return self.detector_true_positives
+
+    @property
+    def false_positives(self) -> int:
+        return self.detector_false_positives
+
+    @property
+    def false_negatives(self) -> int:
+        return self.detector_false_negatives
+
+    @property
+    def detection_efficiency(self) -> float:
+        return self.detector_detection_efficiency
+
+    @property
+    def false_identification_fraction(self) -> float:
+        return self.detector_false_identification_fraction
 
     def as_dict(self) -> dict[str, int | float]:
         return {
-            "true_positives": self.true_positives,
-            "false_positives": self.false_positives,
-            "false_negatives": self.false_negatives,
+            "detector_true_positives": self.detector_true_positives,
+            "detector_false_positives": self.detector_false_positives,
+            "detector_false_negatives": self.detector_false_negatives,
+            "detector_detection_efficiency": self.detector_detection_efficiency,
+            "detector_false_identification_fraction": self.detector_false_identification_fraction,
+            "accepted_true_positives": self.accepted_true_positives,
+            "accepted_false_positives": self.accepted_false_positives,
+            "accepted_false_negatives": self.accepted_false_negatives,
+            "accepted_detection_efficiency": self.accepted_detection_efficiency,
+            "accepted_false_identification_fraction": self.accepted_false_identification_fraction,
             "total_detector_identifications": self.total_detector_identifications,
             "identifications_passing_fit_tolerances": self.identifications_passing_fit_tolerances,
             "known_molecules": self.known_molecules,
             "identification_precision": self.identification_precision,
-            "false_identification_fraction": self.false_identification_fraction,
-            "detection_efficiency": self.detection_efficiency,
             "fit_success_fraction": self.fit_success_fraction,
         }
 
@@ -100,23 +133,38 @@ def calculate_metrics(
     """Calculate explicit Figure-5-style rates and return the assignment."""
     if passing.numel() != identifications.shape[0]:
         raise ValueError("one fit-quality flag is required per identification")
-    match = match_truths(truths, identifications, radius=matching_radius)
-    tp = len(match.matched_identifications)
+    detector_match = match_truths(truths, identifications, radius=matching_radius)
+    detector_tp = len(detector_match.matched_identifications)
     total = int(identifications.shape[0])
-    fp = total - tp
+    detector_fp = total - detector_tp
     known = len(truths)
-    fn = known - tp
-    passing_count = int(passing.to(torch.int64).sum())
-    denominator = tp + fp
+    detector_fn = known - detector_tp
+    accepted = identifications[passing.to(dtype=torch.bool)]
+    # This is deliberately a new assignment, rather than filtering the
+    # pre-tolerance assignment: acceptance can change which identification is
+    # the closest valid match in crowded scenes.
+    accepted_match = match_truths(truths, accepted, radius=matching_radius)
+    accepted_tp = len(accepted_match.matched_identifications)
+    accepted_total = int(accepted.shape[0])
+    accepted_fp = accepted_total - accepted_tp
+    accepted_fn = known - accepted_tp
+    passing_count = accepted_total
+    detector_denominator = detector_tp + detector_fp
+    accepted_denominator = accepted_tp + accepted_fp
     return Metrics(
-        tp,
-        fp,
-        fn,
+        detector_tp,
+        detector_fp,
+        detector_fn,
+        detector_tp / known if known else 0.0,
+        detector_fp / detector_denominator if detector_denominator else 0.0,
+        accepted_tp,
+        accepted_fp,
+        accepted_fn,
+        accepted_tp / known if known else 0.0,
+        accepted_fp / accepted_denominator if accepted_denominator else 0.0,
         total,
         passing_count,
         known,
-        tp / denominator if denominator else 0.0,
-        fp / denominator if denominator else 0.0,
-        tp / known if known else 0.0,
+        detector_tp / detector_denominator if detector_denominator else 0.0,
         passing_count / total if total else 0.0,
-    ), match
+    ), detector_match

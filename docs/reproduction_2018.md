@@ -38,6 +38,10 @@ are explicit configuration, not claims about original data. The smoke case is
 only an execution test. No configuration is tuned to force agreement with the
 reported comparison targets.
 
-Results include counts, rates, detected/missed photon summaries, the
-photon/sqrt(background) proxy, seed, git commit, PyTorch version, and backend.
+Results include separate pre-tolerance detector metrics and post-tolerance
+accepted metrics. Post-tolerance matching is recomputed after filtering to
+`result.labels == true`; this is the metric set used by the Figure 5-style
+plots. `fit_success_fraction` is retained separately. Results also include
+per-stage timing for simulation, preprocessing/detection/NMS, localization,
+quality oracle, truth matching/metrics, replay/training, and total iteration.
 Plots are generated from `results.csv`, never hard-coded.

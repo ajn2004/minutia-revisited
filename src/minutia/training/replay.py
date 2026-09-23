@@ -122,6 +122,12 @@ class TensorReplayBuffer:
         self.detector_score = self.detector_score[indices]
         self.fit_parameters = self.fit_parameters[indices]
 
+    def retain_indices(self, indices: torch.Tensor) -> None:
+        """Retain exactly ``indices``; used by explicit historical policies."""
+        if indices.device != self.device or indices.dtype != torch.long:
+            raise ValueError("indices must be long tensors on the replay device")
+        self._retain(indices)
+
     def training_tensors(self) -> tuple[torch.Tensor, torch.Tensor]:
         if self.num_examples == 0:
             raise ValueError("cannot materialize an empty replay buffer")

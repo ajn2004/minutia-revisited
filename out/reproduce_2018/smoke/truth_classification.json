@@ -1,0 +1,202 @@
+[
+  {
+    "regime": "smoke",
+    "iteration": 1,
+    "frame": 0,
+    "photon_count": 249.2721710205078,
+    "background": 4.164281368255615,
+    "photon_over_sqrt_background": 122.1528947533804,
+    "detected": true,
+    "accepted": false
+  },
+  {
+    "regime": "smoke",
+    "iteration": 1,
+    "frame": 1,
+    "photon_count": 190.615966796875,
+    "background": 4.3652448654174805,
+    "photon_over_sqrt_background": 91.23363339803872,
+    "detected": true,
+    "accepted": false
+  },
+  {
+    "regime": "smoke",
+    "iteration": 1,
+    "frame": 2,
+    "photon_count": 229.8564453125,
+    "background": 4.039451599121094,
+    "photon_over_sqrt_background": 114.36561816528334,
+    "detected": true,
+    "accepted": false
+  },
+  {
+    "regime": "smoke",
+    "iteration": 1,
+    "frame": 3,
+    "photon_count": 209.23757934570312,
+    "background": 3.50105619430542,
+    "photon_over_sqrt_background": 111.82531914191108,
+    "detected": false,
+    "accepted": false
+  },
+  {
+    "regime": "smoke",
+    "iteration": 1,
+    "frame": 4,
+    "photon_count": 203.84088134765625,
+    "background": 4.210717678070068,
+    "photon_over_sqrt_background": 99.3375001314029,
+    "detected": true,
+    "accepted": false
+  },
+  {
+    "regime": "smoke",
+    "iteration": 1,
+    "frame": 5,
+    "photon_count": 252.2085418701172,
+    "background": 3.8729476928710938,
+    "photon_over_sqrt_background": 128.15600936969108,
+    "detected": false,
+    "accepted": false
+  },
+  {
+    "regime": "smoke",
+    "iteration": 1,
+    "frame": 6,
+    "photon_count": 212.49710083007812,
+    "background": 4.072131156921387,
+    "photon_over_sqrt_background": 105.30333615524462,
+    "detected": true,
+    "accepted": false
+  },
+  {
+    "regime": "smoke",
+    "iteration": 1,
+    "frame": 7,
+    "photon_count": 204.91781616210938,
+    "background": 4.410050392150879,
+    "photon_over_sqrt_background": 97.57935495026406,
+    "detected": false,
+    "accepted": false
+  },
+  {
+    "regime": "smoke",
+    "iteration": 1,
+    "frame": 8,
+    "photon_count": 241.5147705078125,
+    "background": 3.5197250843048096,
+    "photon_over_sqrt_background": 128.73283238964993,
+    "detected": true,
+    "accepted": false
+  },
+  {
+    "regime": "smoke",
+    "iteration": 1,
+    "frame": 9,
+    "photon_count": 265.9038391113281,
+    "background": 3.4764628410339355,
+    "photon_over_sqrt_background": 142.61191506982976,
+    "detected": true,
+    "accepted": false
+  },
+  {
+    "regime": "smoke",
+    "iteration": 2,
+    "frame": 0,
+    "photon_count": 249.2721710205078,
+    "background": 4.164281368255615,
+    "photon_over_sqrt_background": 122.1528947533804,
+    "detected": true,
+    "accepted": false
+  },
+  {
+    "regime": "smoke",
+    "iteration": 2,
+    "frame": 1,
+    "photon_count": 190.615966796875,
+    "background": 4.3652448654174805,
+    "photon_over_sqrt_background": 91.23363339803872,
+    "detected": true,
+    "accepted": false
+  },
+  {
+    "regime": "smoke",
+    "iteration": 2,
+    "frame": 2,
+    "photon_count": 229.8564453125,
+    "background": 4.039451599121094,
+    "photon_over_sqrt_background": 114.36561816528334,
+    "detected": true,
+    "accepted": false
+  },
+  {
+    "regime": "smoke",
+    "iteration": 2,
+    "frame": 3,
+    "photon_count": 209.23757934570312,
+    "background": 3.50105619430542,
+    "photon_over_sqrt_background": 111.82531914191108,
+    "detected": true,
+    "accepted": false
+  },
+  {
+    "regime": "smoke",
+    "iteration": 2,
+    "frame": 4,
+    "photon_count": 203.84088134765625,
+    "background": 4.210717678070068,
+    "photon_over_sqrt_background": 99.3375001314029,
+    "detected": true,
+    "accepted": false
+  },
+  {
+    "regime": "smoke",
+    "iteration": 2,
+    "frame": 5,
+    "photon_count": 252.2085418701172,
+    "background": 3.8729476928710938,
+    "photon_over_sqrt_background": 128.15600936969108,
+    "detected": true,
+    "accepted": false
+  },
+  {
+    "regime": "smoke",
+    "iteration": 2,
+    "frame": 6,
+    "photon_count": 212.49710083007812,
+    "background": 4.072131156921387,
+    "photon_over_sqrt_background": 105.30333615524462,
+    "detected": true,
+    "accepted": false
+  },
+  {
+    "regime": "smoke",
+    "iteration": 2,
+    "frame": 7,
+    "photon_count": 204.91781616210938,
+    "background": 4.410050392150879,
+    "photon_over_sqrt_background": 97.57935495026406,
+    "detected": true,
+    "accepted": false
+  },
+  {
+    "regime": "smoke",
+    "iteration": 2,
+    "frame": 8,
+    "photon_count": 241.5147705078125,
+    "background": 3.5197250843048096,
+    "photon_over_sqrt_background": 128.73283238964993,
+    "detected": true,
+    "accepted": false
+  },
+  {
+    "regime": "smoke",
+    "iteration": 2,
+    "frame": 9,
+    "photon_count": 265.9038391113281,
+    "background": 3.4764628410339355,
+    "photon_over_sqrt_background": 142.61191506982976,
+    "detected": true,
+    "accepted": false
+  }
+]
