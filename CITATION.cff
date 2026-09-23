@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+title: MINuTIA Revisited
+message: Please cite both the original MINuTIA paper and this reimplementation.
+authors:
+  - name: MINuTIA Revisited contributors
+version: 0.1.0
+doi: 10.1002/jemt.23059
+preferred-citation:
+  type: article
+  authors:
+    - family-names: Nelson
+      given-names: A. J.
+    - family-names: Hess
+      given-names: S. T.
+  title: Molecular imaging with neural training of identification algorithm (neural network localization identification)
+  journal: Microscopy Research and Technique
+  year: 2018
+  doi: 10.1002/jemt.23059
