@@ -16,15 +16,22 @@ frames → preprocessing → 7×7/30 ANN → 5×5 NMS
        → Fisher/CRLB → tolerance oracle → replay buffer → ANN training
 ```
 
-The reference uses ordinary PyTorch operations and works with normal PyTorch
-device semantics on CPU, ROCm, or CUDA. It is intentionally readable rather
-than end-to-end device-resident: `localize_candidates` converts candidate
+The readable reference uses ordinary PyTorch operations and works with normal
+PyTorch device semantics on CPU, ROCm, or CUDA. It is intentionally readable
+rather than accelerator-friendly: `localize_candidates` converts candidate
 coordinates to Python scalars, loops over candidates, and `_fit_patch` runs a
-separate optimizer for each one. Training example assembly and loss reporting
-also perform Python scalar conversions. These are documented host
-synchronization points, not performance claims.
+separate optimizer for each one. It remains the numerical oracle.
 
-## Future accelerator-resident design
+The portable batched path is exposed separately as
+`localize_candidates_batched`. It gathers `[N,K,K]` windows with tensor
+indexing, runs a damped Newton/Fisher update over an `[N,6]` parameter tensor,
+and returns tensor-valued parameters, uncertainty, Fisher information,
+covariance, likelihood, and validity masks. It uses the same pixel-integrated
+Gaussian model and supports CPU, CUDA, and ROCm through PyTorch's normal
+`torch.cuda` device API. This is a portable batched implementation, not yet a
+claim of an accelerator speedup.
+
+## Future fused detector → localizer design
 
 ```text
 device frames → detector → device threshold/NMS/compaction
@@ -33,13 +40,16 @@ device frames → detector → device threshold/NMS/compaction
               → device labels and training tensors
 ```
 
-This is an architectural boundary for a later implementation, not the current
-behavior. The future path must keep candidate coordinates, localization,
-validity checks, and labels as tensors without per-candidate host
-synchronization. It must retain a numerical-equivalence test against the
-reference path. A compact device gather may be added after profiling, but it
-is an optimization rather than a conceptual stage. No custom kernels are part
-of this change.
+The batched localizer now provides the portable middle step in this design.
+The detector-to-coordinate compaction and direct source-frame/fused localizer
+path remain future work. Candidate coordinates, localization validity checks,
+and labels must remain tensors without per-candidate host synchronization. A
+compact device gather is an implementation optimization rather than a public
+architectural boundary. No custom kernels are part of this change.
+
+`benchmarks/benchmark_localization.py` reports elapsed time for the reference
+and batched paths on CPU and, when available, an accelerator. Run it before
+making performance claims.
 
 ## Preprocessing boundary
 

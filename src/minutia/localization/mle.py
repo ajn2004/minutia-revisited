@@ -15,6 +15,8 @@ class FitResult:
     uncertainty: torch.Tensor
     log_likelihood: torch.Tensor
     valid: torch.Tensor
+    fisher: torch.Tensor | None = None
+    covariance: torch.Tensor | None = None
 
 
 def _fit_patch(
