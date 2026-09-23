@@ -31,6 +31,7 @@ class ExperimentConfig:
     learning_rate: float
     toss_positive_fraction: float
     replay_capacity: int
+    toss_positive_start_iteration: int = 11
     schedule: str = "paper_methods"
     execution_path: str = "batched"
     initialization: str = "historical_uniform"
@@ -39,6 +40,7 @@ class ExperimentConfig:
     bootstrap_min_positives: int = 40
     bootstrap_max_attempts: int = 100
     training_mode: str = "modern_adam"
+    quality_mode: str = "modern"
 
     @classmethod
     def from_toml(cls, path: str | Path) -> "ExperimentConfig":

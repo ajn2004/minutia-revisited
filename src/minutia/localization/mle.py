@@ -21,7 +21,7 @@ class FitResult:
 
 def _fit_patch(
     patch: torch.Tensor, iterations: int
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, bool]:
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, bool]:
     dtype = patch.dtype
     size = patch.shape[-1]
     grid = torch.arange(size, dtype=dtype, device=patch.device) - (size - 1) / 2
@@ -84,10 +84,17 @@ def _fit_patch(
             and torch.isfinite(uncertainty).all()
             and (params[2:] > 0).all()
         )
-        return params, uncertainty, ll, valid
+        return params, uncertainty, ll, covariance, valid
     except (RuntimeError, ValueError):
         nan = torch.full((6,), torch.nan, dtype=dtype, device=patch.device)
-        return nan, nan, torch.tensor(float("nan"), dtype=dtype, device=patch.device), False
+        nan_covariance = torch.full((6, 6), torch.nan, dtype=dtype, device=patch.device)
+        return (
+            nan,
+            nan,
+            torch.tensor(float("nan"), dtype=dtype, device=patch.device),
+            nan_covariance,
+            False,
+        )
 
 
 def localize_candidates(
@@ -107,7 +114,7 @@ def localize_candidates(
         frames = frames.unsqueeze(0)
     if candidates.ndim != 2 or candidates.shape[1] < 3:
         raise ValueError("candidates must have columns frame, x, y[, score]")
-    params, errors, likelihoods, validity = [], [], [], []
+    params, errors, likelihoods, covariances, validity = [], [], [], [], []
     height, width = frames.shape[-2:]
     for candidate in candidates:
         frame, x, y = (int(candidate[0]), int(candidate[1]), int(candidate[2]))
@@ -123,10 +130,13 @@ def localize_candidates(
             params.append(nan)
             errors.append(nan)
             likelihoods.append(nan[0])
+            covariances.append(
+                torch.full((6, 6), torch.nan, dtype=frames.dtype, device=frames.device)
+            )
             validity.append(False)
             continue
         patch = frames[frame, y - radius : y + radius + 1, x - radius : x + radius + 1]
-        fit, error, ll, valid = _fit_patch(patch, iterations)
+        fit, error, ll, covariance, valid = _fit_patch(patch, iterations)
         # Convert local fitted position to image coordinates.
         fit = fit.clone()
         fit[0] += x
@@ -134,6 +144,7 @@ def localize_candidates(
         params.append(fit)
         errors.append(error)
         likelihoods.append(ll)
+        covariances.append(covariance)
         validity.append(valid)
     if not params:
         empty = torch.empty((0, 6), dtype=frames.dtype, device=frames.device)
@@ -148,4 +159,5 @@ def localize_candidates(
         torch.stack(errors),
         torch.stack(likelihoods),
         torch.tensor(validity, device=frames.device),
+        covariance=torch.stack(covariances),
     )

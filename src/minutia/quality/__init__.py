@@ -1,3 +1,13 @@
-from .oracle import QualityConfig, quality_oracle
+from .oracle import (
+    HistoricalQualityConfig,
+    QualityConfig,
+    quality_oracle,
+    quality_rejection_counts,
+)
 
-__all__ = ["QualityConfig", "quality_oracle"]
+__all__ = [
+    "HistoricalQualityConfig",
+    "QualityConfig",
+    "quality_oracle",
+    "quality_rejection_counts",
+]

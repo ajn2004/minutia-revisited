@@ -1,7 +1,7 @@
 """Reference detector → coordinate → localizer learning iteration."""
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from time import perf_counter
 
 import torch
@@ -10,7 +10,7 @@ from torch import nn
 from minutia.detector import CandidateSet, CanonicalDetector, select_candidates
 from minutia.localization import FitResult, localize_candidates
 from minutia.preprocess import subtract_background
-from minutia.quality import QualityConfig, quality_oracle
+from minutia.quality import QualityConfig, quality_oracle, quality_rejection_counts
 from minutia.training import ReplayBuffer, TrainingExample
 
 
@@ -21,6 +21,7 @@ class IterationResult:
     labels: torch.Tensor
     loss: float | None
     timings: dict[str, float]
+    quality_rejections: dict[str, int] = field(default_factory=dict)
 
 
 def run_iteration(
@@ -64,6 +65,7 @@ def run_iteration(
     localization_seconds = perf_counter() - localization_started
     quality_started = perf_counter()
     labels = quality_oracle(fits, candidates.as_tensor(), quality)
+    quality_rejections = quality_rejection_counts(fits, candidates.as_tensor(), quality)
     quality_oracle_seconds = perf_counter() - quality_started
     replay_started = perf_counter()
     examples: list[TrainingExample] = []
@@ -106,4 +108,5 @@ def run_iteration(
             "replay_training_seconds": perf_counter() - replay_started,
             "total_iteration_seconds": perf_counter() - started,
         },
+        quality_rejections,
     )

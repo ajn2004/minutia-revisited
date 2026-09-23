@@ -55,12 +55,21 @@ formula names instead of silently equating them.
 The primary `paper_methods` schedule uses 10 frames before iteration 15 and up
 to 1,000 thereafter. `legacy_matlab` is also implemented: 10 frames for
 iterations <5, 50 for 5-14, 500 for 15-24, then 1,000. The optional 5%
-positive-example removal is retained as a historical replay policy.
+positive-example removal is retained as a historical replay policy and begins
+at `toss_positive_start_iteration = 11`, matching `Neural_Learning.m`.
 
 Every iteration records selected source-frame indices (and bootstrap attempts
 record theirs) in the JSON artifacts. Replay class counts and detector score
 calibration diagnostics are included in each results row. Training uses
+the modern fit-quality oracle by default; set `quality_mode = "historical"`
+to use the strict MATLAB tolerances from `Neural_Learning.m` and
+`app_gpu_tol_all_color_learning.m`. Results include marginal per-criterion
+quality rejection counts for diagnosing the historical gate. Training uses
 `training_mode = "modern_adam"` by default. The explicitly named
 `historical_objective_lbfgs` mode uses a seeded 90% subset, BCE, weight-only L2
-regularization with lambda 0.3, and at most 100 LBFGS iterations as a practical
-approximation to the surviving MATLAB objective optimizer.
+regularization with lambda 0.3, and at most 100 LBFGS iterations. PyTorch LBFGS
+with strong-Wolfe search is a practical analogue of the surviving MATLAB
+`fmincg` call, not an exact optimizer reproduction. Both modes continue from
+the current detector parameters after bootstrap; the historical bootstrap is
+the only retry-time reinitialization. Results include the final objective loss
+and optimizer iteration count for every training call.

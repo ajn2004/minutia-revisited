@@ -12,7 +12,7 @@ from torch import nn
 from minutia.detector import CandidateSet, CanonicalDetector, select_candidates
 from minutia.localization import FitResult, localize_candidates_batched
 from minutia.preprocess import subtract_background
-from minutia.quality import QualityConfig, quality_oracle
+from minutia.quality import QualityConfig, quality_oracle, quality_rejection_counts
 from minutia.training import TensorReplayBuffer
 
 
@@ -25,6 +25,7 @@ class BatchedIterationResult:
     positive_count: torch.Tensor
     candidate_count: torch.Tensor
     timings: dict[str, float]
+    quality_rejections: dict[str, int]
 
 
 def gather_training_patches(
@@ -94,6 +95,7 @@ def run_iteration_batched(
     localization_seconds = perf_counter() - localization_started
     quality_started = perf_counter()
     labels = quality_oracle(fits, candidate_tensor, quality)
+    quality_rejections = quality_rejection_counts(fits, candidate_tensor, quality)
     quality_oracle_seconds = perf_counter() - quality_started
     replay_started = perf_counter()
     patches = gather_training_patches(detector_frames, candidate_tensor)
@@ -135,5 +137,6 @@ def run_iteration_batched(
             "quality_oracle_seconds": quality_oracle_seconds,
             "replay_training_seconds": replay_training_seconds,
             "total_iteration_seconds": perf_counter() - started,
-        }
+        },
+        quality_rejections=quality_rejections,
     )

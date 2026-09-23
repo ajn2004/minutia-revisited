@@ -21,6 +21,7 @@ mle_iterations = 20
 train_steps = 1
 learning_rate = 0.01
 toss_positive_fraction = 0.05
+toss_positive_start_iteration = 11
 replay_capacity = 100000
 schedule = "paper_methods"
 execution_path = "batched"

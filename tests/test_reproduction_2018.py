@@ -7,6 +7,8 @@ from experiments.reproduce_2018.config import ExperimentConfig, frames_for_itera
 from experiments.reproduce_2018.metrics import calculate_metrics, match_truths
 from experiments.reproduce_2018.run import run
 from minutia.detector import CanonicalDetector
+from minutia.localization import FitResult
+from minutia.quality import HistoricalQualityConfig, quality_oracle, quality_rejection_counts
 from minutia.sim import Molecule
 from minutia.training import ReplayBuffer, TrainingExample
 
@@ -47,6 +49,40 @@ def test_named_historical_schedules() -> None:
     assert frames_for_iteration("legacy_matlab", 4, 5000) == 10
     assert frames_for_iteration("legacy_matlab", 5, 5000) == 50
     assert frames_for_iteration("legacy_matlab", 15, 5000) == 500
+
+
+def test_historical_quality_uses_covariance_variances_and_strict_gates() -> None:
+    parameters = torch.tensor([[10.2, 20.2, 100.0, 2.0, 2.0, 4.0]])
+    covariance = torch.diag(torch.tensor([0.2, 0.2, 100.0, 1.0, 1.0, 1.0])).unsqueeze(0)
+    # Deliberately disagree with covariance: historical quality must not use
+    # this standard-deviation tensor for the CRLB variance gates.
+    uncertainty = torch.full_like(parameters, 100.0)
+    fits = FitResult(
+        parameters,
+        uncertainty,
+        torch.zeros(1),
+        torch.ones(1, dtype=torch.bool),
+        covariance=covariance,
+    )
+    candidates = torch.tensor([[0.0, 10.0, 20.0, 1.0]])
+
+    assert bool(quality_oracle(fits, candidates, HistoricalQualityConfig())[0])
+
+    at_boundary = parameters.clone()
+    at_boundary[0, 2] = 10.0
+    boundary_fits = FitResult(
+        at_boundary, uncertainty, torch.zeros(1), torch.ones(1, dtype=torch.bool),
+        covariance=covariance,
+    )
+    assert not bool(quality_oracle(boundary_fits, candidates, HistoricalQualityConfig())[0])
+    counts = quality_rejection_counts(boundary_fits, candidates, HistoricalQualityConfig())
+    assert counts["photons"] == 1
+
+
+def test_experiment_defaults_preserve_historical_positive_toss_start() -> None:
+    config = ExperimentConfig.from_toml("experiments/reproduce_2018/configs/smoke.toml")
+    assert config.quality_mode == "modern"
+    assert config.toss_positive_start_iteration == 11
 
 
 def test_smoke_reproduction_uses_batched_path(tmp_path: Path) -> None:

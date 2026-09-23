@@ -7,6 +7,7 @@ import argparse
 import csv
 import json
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
 
@@ -17,13 +18,25 @@ from minutia.detector import CanonicalDetector
 from minutia.pipeline.batched import run_iteration_batched
 from minutia.pipeline.reference import run_iteration
 from minutia.preprocess import subtract_background
-from minutia.quality import QualityConfig
+from minutia.quality import HistoricalQualityConfig, QualityConfig
 from minutia.training import ReplayBuffer, TensorReplayBuffer
 
 from .config import ExperimentConfig, frames_for_iteration
 from .metrics import calculate_metrics, match_truths
 from .plotting import plot_learning_curves
 from .simulation import generate_movie
+
+
+@dataclass(frozen=True)
+class TrainingDiagnostics:
+    """Observable result of one replay optimization call."""
+
+    final_loss: float
+    optimizer_iterations: int
+
+
+def _empty_training_diagnostics() -> TrainingDiagnostics:
+    return TrainingDiagnostics(final_loss=0.0, optimizer_iterations=0)
 
 
 def _mean_photons(molecules: list[object]) -> float:
@@ -64,7 +77,7 @@ def _discard_positive_examples(replay: ReplayBuffer | TensorReplayBuffer, fracti
     generator.manual_seed(seed + iteration)
     if isinstance(replay, TensorReplayBuffer):
         positives = torch.where(replay.labels)[0]
-        count = int(positives.numel() * fraction)
+        count = int(positives.numel() * fraction + 0.5)
         if count:
             permutation = torch.randperm(
                 positives.numel(), generator=generator, device=positives.device
@@ -75,7 +88,8 @@ def _discard_positive_examples(replay: ReplayBuffer | TensorReplayBuffer, fracti
             replay.retain_indices(torch.where(keep)[0])
         return
     positives = [i for i, example in enumerate(replay.examples) if example.label]
-    count = int(len(positives) * fraction)
+    # MATLAB's ``round`` is used by Neural_Learning.m for tosspoint.
+    count = int(len(positives) * fraction + 0.5)
     if count:
         drop_positions = torch.randperm(len(positives), generator=generator)[:count]
         drop = {positives[int(position)] for position in drop_positions}
@@ -121,7 +135,8 @@ def _remap_truths(movie: object, source_indices: torch.Tensor) -> list[object]:
 
 
 def _detector_diagnostics(
-    frames: torch.Tensor, truths: list[object], detector: CanonicalDetector
+    frames: torch.Tensor, truths: list[object], detector: CanonicalDetector,
+    *, threshold: float,
 ) -> dict[str, float]:
     """Measure score calibration before thresholding, including truth-centered scores."""
     detector_frames = subtract_background(frames, radius=5, method="rolling_ball_approximation")
@@ -143,7 +158,7 @@ def _detector_diagnostics(
         "score_mean": stat(values, "mean"),
         "score_median": stat(values, "median"),
         "score_max": stat(values, "max"),
-        "fraction_score_above_0_5": float((values > 0.5).to(torch.float32).mean())
+        "fraction_score_above_threshold": float((values > threshold).to(torch.float32).mean())
         if values.numel() else 0.0,
         "truth_score_mean": stat(truth_scores, "mean"),
         "truth_score_median": stat(truth_scores, "median"),
@@ -161,11 +176,12 @@ def _train_replay(
     mode: str = "modern_adam",
     seed: int = 0,
     iteration: int = 0,
-) -> float | torch.Tensor:
+) -> TrainingDiagnostics:
     """Train once on accumulated bootstrap examples, after the gate passes."""
-    if train_steps <= 0 or (replay.num_examples if isinstance(replay, TensorReplayBuffer)
-                            else len(replay.examples)) == 0:
-        return torch.zeros(()) if isinstance(replay, TensorReplayBuffer) else 0.0
+    if (mode == "modern_adam" and train_steps <= 0) or (
+        replay.num_examples if isinstance(replay, TensorReplayBuffer) else len(replay.examples)
+    ) == 0:
+        return _empty_training_diagnostics()
     detector.train()
     if isinstance(replay, TensorReplayBuffer):
         patches, target = replay.training_tensors()
@@ -180,10 +196,16 @@ def _train_replay(
             loss = nn.functional.binary_cross_entropy(prediction, target)
             loss.backward()
             optimizer.step()
+        assert loss is not None
+        with torch.no_grad():
+            final_loss = nn.functional.binary_cross_entropy(detector(patches), target)
+        return TrainingDiagnostics(float(final_loss), train_steps)
     elif mode == "historical_objective_lbfgs":
         generator = torch.Generator(device=patches.device).manual_seed(seed + iteration)
         subset_size = max(1, int(0.9 * patches.shape[0]))
-        indices = torch.randperm(patches.shape[0], generator=generator, device=patches.device)[:subset_size]
+        indices = torch.randperm(
+            patches.shape[0], generator=generator, device=patches.device
+        )[:subset_size]
         patches, target = patches[indices], target[indices]
         optimizer = torch.optim.LBFGS(
             detector.parameters(), max_iter=100, line_search_fn="strong_wolfe"
@@ -197,11 +219,23 @@ def _train_replay(
             )
             loss.backward()
             return loss
-        loss = optimizer.step(objective).detach()
+        optimizer.step(objective)
+        with torch.no_grad():
+            prediction = detector(patches)
+            loss = nn.functional.binary_cross_entropy(prediction, target)
+            loss = loss + 0.3 / (2 * patches.shape[0]) * (
+                detector.hidden.weight.square().sum() + detector.output.weight.square().sum()
+            )
+        # LBFGS stores the actual quasi-Newton iterations in its state.  This
+        # is more informative than the number of closure evaluations used by
+        # the strong-Wolfe line search.
+        optimizer_iterations = max(
+            (int(state.get("n_iter", 0)) for state in optimizer.state.values()),
+            default=0,
+        )
+        return TrainingDiagnostics(float(loss), optimizer_iterations)
     else:
         raise ValueError(f"unknown training mode: {mode}")
-    assert loss is not None
-    return loss.detach()
 
 
 def _bootstrap(
@@ -210,7 +244,7 @@ def _bootstrap(
     detector: CanonicalDetector,
     replay: ReplayBuffer | TensorReplayBuffer,
     iteration_runner: object,
-    quality: QualityConfig,
+    quality: QualityConfig | HistoricalQualityConfig,
 ) -> tuple[object, list[dict[str, object]]]:
     """Run the historical first-iteration positive-example bootstrap."""
     if config.bootstrap_min_positives < 0:
@@ -249,11 +283,13 @@ def _bootstrap(
         records.append(record)
         print("bootstrap=" + " ".join(f"{key}={value}" for key, value in record.items()))
         if positives >= config.bootstrap_min_positives:
-            _train_replay(
+            training = _train_replay(
                 detector, replay, learning_rate=config.learning_rate,
                 train_steps=config.train_steps,
                 mode=config.training_mode, seed=config.seed, iteration=attempt,
             )
+            record["final_training_loss"] = training.final_loss
+            record["optimizer_iterations"] = training.optimizer_iterations
             return last_result, records
     raise RuntimeError(
         "historical detector bootstrap exhausted "
@@ -287,12 +323,18 @@ def run(config: ExperimentConfig, output: Path) -> list[dict[str, object]]:
     else:
         replay = ReplayBuffer(capacity=config.replay_capacity, seed=config.seed)
         iteration_runner = run_iteration
-    quality = QualityConfig()
+    if config.quality_mode == "modern":
+        quality = QualityConfig()
+    elif config.quality_mode == "historical":
+        quality = HistoricalQualityConfig()
+    else:
+        raise ValueError("quality_mode must be 'modern' or 'historical'")
     rows: list[dict[str, object]] = []
     truth_records: list[dict[str, object]] = []
     bootstrap_records: list[dict[str, object]] = []
     for iteration in range(1, config.iterations + 1):
         iteration_started = perf_counter()
+        training = _empty_training_diagnostics()
         count = frames_for_iteration(config.schedule, iteration, config.n_frames)
         source_indices = select_frame_indices(
             movie.frames.shape[0], count, seed=config.seed, iteration=iteration
@@ -301,7 +343,9 @@ def run(config: ExperimentConfig, output: Path) -> list[dict[str, object]]:
         truths = _remap_truths(movie, source_indices)
         if iteration == 1 and not config.bootstrap_enabled:
             _initialize_detector(detector, config)
-        detector_diagnostics = _detector_diagnostics(frames, truths, detector)
+        detector_diagnostics = _detector_diagnostics(
+            frames, truths, detector, threshold=config.detector_threshold
+        )
         print(
             f"iteration={iteration} frames={count} candidates=",
             end="",
@@ -317,7 +361,9 @@ def run(config: ExperimentConfig, output: Path) -> list[dict[str, object]]:
             )
             frames = movie.frames[source_indices]
             truths = _remap_truths(movie, source_indices)
-            detector_diagnostics = _detector_diagnostics(frames, truths, detector)
+            detector_diagnostics = _detector_diagnostics(
+                frames, truths, detector, threshold=config.detector_threshold
+            )
         else:
             result = iteration_runner(
                 frames,
@@ -333,7 +379,7 @@ def run(config: ExperimentConfig, output: Path) -> list[dict[str, object]]:
                 progress=lambda candidate_count: print(candidate_count, flush=True),
             )
             training_started = perf_counter()
-            _train_replay(
+            training = _train_replay(
                 detector, replay, learning_rate=config.learning_rate,
                 train_steps=config.train_steps, mode=config.training_mode,
                 seed=config.seed, iteration=iteration,
@@ -395,7 +441,13 @@ def run(config: ExperimentConfig, output: Path) -> list[dict[str, object]]:
             "simulation_seconds": simulation_seconds,
             "truth_matching_metrics_seconds": matching_metrics_seconds,
             "source_frame_indices": json.dumps(source_indices.tolist()),
+            "final_training_loss": training.final_loss,
+            "optimizer_iterations": training.optimizer_iterations,
         }
+        if iteration == 1 and config.bootstrap_enabled:
+            bootstrap_training = bootstrap_records[-1]
+            row["final_training_loss"] = float(bootstrap_training.get("final_training_loss", 0.0))
+            row["optimizer_iterations"] = int(bootstrap_training.get("optimizer_iterations", 0))
         row.update(detector_diagnostics)
         positive_count, negative_count = _replay_counts(replay)
         row.update({
@@ -407,6 +459,10 @@ def run(config: ExperimentConfig, output: Path) -> list[dict[str, object]]:
         })
         row.update(metrics.as_dict())
         row.update(getattr(result, "timings", {}))
+        row.update({
+            f"quality_rejected_{name}": count
+            for name, count in getattr(result, "quality_rejections", {}).items()
+        })
         # The movie is generated once, before iteration one. Repeat the value
         # in every row so each machine-readable iteration record is complete.
         row.setdefault("preprocessing_detection_nms_seconds", 0.0)
@@ -414,18 +470,28 @@ def run(config: ExperimentConfig, output: Path) -> list[dict[str, object]]:
         row.setdefault("quality_oracle_seconds", 0.0)
         row.setdefault("replay_training_seconds", 0.0)
         row["total_iteration_seconds"] = perf_counter() - iteration_started
-        rows.append(row)
         discard_started = perf_counter()
-        _discard_positive_examples(
-            replay,
-            config.toss_positive_fraction,
-            seed=config.seed,
-            iteration=iteration,
-        )
+        # Neural_Learning.m tests ``it - 1 > 10`` after incrementing ``it``;
+        # with one-based reporting this starts the toss on iteration 11.
+        if iteration >= config.toss_positive_start_iteration:
+            _discard_positive_examples(
+                replay,
+                config.toss_positive_fraction,
+                seed=config.seed,
+                iteration=iteration,
+            )
         row["replay_training_seconds"] = float(row["replay_training_seconds"]) + (
             perf_counter() - discard_started
         )
+        positive_count, negative_count = _replay_counts(replay)
+        row.update({
+            "replay_positive_examples": positive_count,
+            "replay_negative_examples": negative_count,
+            "replay_positive_fraction": positive_count / (positive_count + negative_count)
+            if positive_count + negative_count else 0.0,
+        })
         row["total_iteration_seconds"] = perf_counter() - iteration_started
+        rows.append(row)
         print(
             f"iteration={iteration} detector_tp={metrics.detector_true_positives} "
             f"detector_fp={metrics.detector_false_positives} "
@@ -463,6 +529,7 @@ def run(config: ExperimentConfig, output: Path) -> list[dict[str, object]]:
         "execution_path": config.execution_path,
         "bootstrap_attempts": bootstrap_records,
         "training_mode": config.training_mode,
+        "quality_mode": config.quality_mode,
         "selected_source_frame_indices": [
             json.loads(row["source_frame_indices"]) for row in rows
         ],

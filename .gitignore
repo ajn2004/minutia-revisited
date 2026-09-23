@@ -6,3 +6,12 @@ __pycache__/
 .ruff_cache/
 *.egg-info/
 out/reproduce_2018/medium-dev/truth_classification.json
+out/reproduce_2018/medium-dev/
+out/reproduce_2018/medium-dev/*
+out/reproduce_2018/medium-dev/truth_classification.json
+out/reproduce_2018/medium-dev-random-frames/truth_classification.json
+
+# Generated experiment data and run artifacts
+out/
+data/
+runs/
