@@ -112,6 +112,18 @@ def test_smoke_reproduction_uses_batched_path(tmp_path: Path) -> None:
     ):
         assert key in rows[0]
     assert '"execution_path": "batched"' in (tmp_path / "smoke" / "metadata.json").read_text()
+    audit_header = (tmp_path / "smoke" / "identifications.csv").read_text().splitlines()[0]
+    for field in (
+        "iteration", "source_frame", "candidate_x", "candidate_y",
+        "detector_score", "fit_x", "fit_y", "fit_photons", "fit_sigma_x",
+        "fit_sigma_y", "fit_background", "modern_quality_pass",
+        "historical_quality_pass", "nearest_truth_distance",
+        "nearest_truth_photons", "nearest_truth_background",
+    ):
+        assert field in audit_header
+    sensitivity = (tmp_path / "smoke" / "matching_sensitivity.csv").read_text()
+    assert "detector_recall" in sensitivity
+    assert sensitivity.count("\n") == config.iterations * 4 + 1
 
 
 def test_historical_initialization_and_bootstrap_gate(monkeypatch) -> None:

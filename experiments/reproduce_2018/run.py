@@ -6,6 +6,7 @@ Example: ``python -m experiments.reproduce_2018.run --config ... --output out``.
 import argparse
 import csv
 import json
+import math
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,11 +19,11 @@ from minutia.detector import CanonicalDetector
 from minutia.pipeline.batched import run_iteration_batched
 from minutia.pipeline.reference import run_iteration
 from minutia.preprocess import subtract_background
-from minutia.quality import HistoricalQualityConfig, QualityConfig
+from minutia.quality import HistoricalQualityConfig, QualityConfig, quality_oracle
 from minutia.training import ReplayBuffer, TensorReplayBuffer
 
 from .config import ExperimentConfig, frames_for_iteration
-from .metrics import calculate_metrics, match_truths
+from .metrics import calculate_metrics, match_truths, matched_rate_metrics
 from .plotting import plot_learning_curves
 from .simulation import generate_movie
 
@@ -53,6 +54,124 @@ def _mean_signal_proxy(molecules: list[object]) -> float:
         if molecules
         else 0.0
     )
+
+
+ANALYSIS_MATCHING_RADII = (0.5, 1.0, 1.5, 2.0)
+AUDIT_FIELDS = (
+    "iteration",
+    "source_frame",
+    "candidate_x",
+    "candidate_y",
+    "detector_score",
+    "fit_x",
+    "fit_y",
+    "fit_photons",
+    "fit_sigma_x",
+    "fit_sigma_y",
+    "fit_background",
+    "modern_quality_pass",
+    "historical_quality_pass",
+    "nearest_truth_distance",
+    "nearest_truth_photons",
+    "nearest_truth_background",
+)
+
+
+def _nearest_truth_audit_values(
+    fit_x: float, fit_y: float, source_frame: int, movie: object
+) -> tuple[float, float, float]:
+    """Find the nearest molecule in the candidate's original source frame."""
+    candidates = [m for m in movie.molecules if m.frame == source_frame]
+    if not candidates or not (math.isfinite(fit_x) and math.isfinite(fit_y)):
+        return float("nan"), float("nan"), float("nan")
+    nearest = min(candidates, key=lambda m: (fit_x - m.x) ** 2 + (fit_y - m.y) ** 2)
+    distance = ((fit_x - nearest.x) ** 2 + (fit_y - nearest.y) ** 2) ** 0.5
+    return float(distance), float(nearest.photons), float(nearest.background)
+
+
+def _identification_audit_rows(
+    iteration: int,
+    source_indices: torch.Tensor,
+    candidates: torch.Tensor,
+    fits: object,
+    modern_pass: torch.Tensor,
+    historical_pass: torch.Tensor,
+    movie: object,
+) -> list[dict[str, object]]:
+    """Materialize one auditable row for every detector candidate."""
+    parameters = fits.parameters.detach().cpu()
+    candidate_values = candidates.detach().cpu()
+    source_values = source_indices.detach().cpu()
+    modern_values = modern_pass.detach().cpu()
+    historical_values = historical_pass.detach().cpu()
+    rows: list[dict[str, object]] = []
+    for index in range(candidate_values.shape[0]):
+        candidate = candidate_values[index]
+        fit = parameters[index]
+        source_frame = int(source_values[int(candidate[0])])
+        fit_values = [float(value) for value in fit]
+        distance, photons, background = _nearest_truth_audit_values(
+            fit_values[0], fit_values[1], source_frame, movie
+        )
+        rows.append({
+            "iteration": iteration,
+            "source_frame": source_frame,
+            "candidate_x": int(candidate[1]),
+            "candidate_y": int(candidate[2]),
+            "detector_score": float(candidate[3]),
+            "fit_x": fit_values[0],
+            "fit_y": fit_values[1],
+            "fit_photons": fit_values[2],
+            "fit_sigma_x": fit_values[3],
+            "fit_sigma_y": fit_values[4],
+            "fit_background": fit_values[5],
+            "modern_quality_pass": bool(modern_values[index]),
+            "historical_quality_pass": bool(historical_values[index]),
+            "nearest_truth_distance": distance,
+            "nearest_truth_photons": photons,
+            "nearest_truth_background": background,
+        })
+    return rows
+
+
+def _sensitivity_rows(
+    iteration: int,
+    truths: list[object],
+    identifications: torch.Tensor,
+    historical_pass: torch.Tensor,
+) -> list[dict[str, object]]:
+    rows = []
+    accepted = identifications[historical_pass.to(dtype=torch.bool)]
+    for radius in ANALYSIS_MATCHING_RADII:
+        detector_rates = matched_rate_metrics(truths, identifications, radius=radius)
+        historical_rates = matched_rate_metrics(truths, accepted, radius=radius)
+        rows.append({
+            "iteration": iteration,
+            "radius": radius,
+            "detector_recall": detector_rates["recall"],
+            "detector_false_identification_fraction": detector_rates[
+                "false_identification_fraction"
+            ],
+            "historical_quality_recall": historical_rates["recall"],
+            "historical_quality_false_identification_fraction": historical_rates[
+                "false_identification_fraction"
+            ],
+        })
+    return rows
+
+
+def _sensitivity_result_fields(rows: list[dict[str, object]]) -> dict[str, float]:
+    fields: dict[str, float] = {}
+    for row in rows:
+        radius = str(row["radius"]).replace(".", "_")
+        for name in (
+            "detector_recall",
+            "detector_false_identification_fraction",
+            "historical_quality_recall",
+            "historical_quality_false_identification_fraction",
+        ):
+            fields[f"{name}_radius_{radius}"] = float(row[name])
+    return fields
 
 
 def _commit() -> str:
@@ -331,6 +450,8 @@ def run(config: ExperimentConfig, output: Path) -> list[dict[str, object]]:
         raise ValueError("quality_mode must be 'modern' or 'historical'")
     rows: list[dict[str, object]] = []
     truth_records: list[dict[str, object]] = []
+    identification_records: list[dict[str, object]] = []
+    sensitivity_records: list[dict[str, object]] = []
     bootstrap_records: list[dict[str, object]] = []
     for iteration in range(1, config.iterations + 1):
         iteration_started = perf_counter()
@@ -397,6 +518,28 @@ def run(config: ExperimentConfig, output: Path) -> list[dict[str, object]]:
             result.labels,
             matching_radius=config.matching_radius,
         )
+        # These flags are analysis outputs only.  In particular, they do not
+        # replace ``result.labels`` (the configured training oracle), and the
+        # canonical metric above remains at config.matching_radius.
+        modern_pass = quality_oracle(result.fits, candidate_tensor, QualityConfig())
+        historical_pass = quality_oracle(
+            result.fits, candidate_tensor, HistoricalQualityConfig()
+        )
+        identification_records.extend(
+            _identification_audit_rows(
+                iteration,
+                source_indices,
+                candidate_tensor,
+                result.fits,
+                modern_pass,
+                historical_pass,
+                movie,
+            )
+        )
+        iteration_sensitivity = _sensitivity_rows(
+            iteration, truths, identifications, historical_pass
+        )
+        sensitivity_records.extend(iteration_sensitivity)
         matching_metrics_seconds = perf_counter() - matching_started
         accepted_identifications = identifications[result.labels.to(dtype=torch.bool)]
         accepted_match = match_truths(
@@ -444,6 +587,7 @@ def run(config: ExperimentConfig, output: Path) -> list[dict[str, object]]:
             "final_training_loss": training.final_loss,
             "optimizer_iterations": training.optimizer_iterations,
         }
+        row.update(_sensitivity_result_fields(iteration_sensitivity))
         if iteration == 1 and config.bootstrap_enabled:
             bootstrap_training = bootstrap_records[-1]
             row["final_training_loss"] = float(bootstrap_training.get("final_training_loss", 0.0))
@@ -545,6 +689,22 @@ def run(config: ExperimentConfig, output: Path) -> list[dict[str, object]]:
         writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
         writer.writeheader()
         writer.writerows(rows)
+    with (output / "identifications.csv").open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(AUDIT_FIELDS))
+        writer.writeheader()
+        writer.writerows(identification_records)
+    with (output / "matching_sensitivity.csv").open("w", newline="") as handle:
+        sensitivity_fields = (
+            "iteration",
+            "radius",
+            "detector_recall",
+            "detector_false_identification_fraction",
+            "historical_quality_recall",
+            "historical_quality_false_identification_fraction",
+        )
+        writer = csv.DictWriter(handle, fieldnames=list(sensitivity_fields))
+        writer.writeheader()
+        writer.writerows(sensitivity_records)
     plot_learning_curves(output / "results.csv", output / "figure5_style.png")
     return rows
 

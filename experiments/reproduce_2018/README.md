@@ -9,9 +9,18 @@ python -m experiments.reproduce_2018.run \
   --config experiments/reproduce_2018/configs/smoke.toml --output out/smoke
 ```
 
-The output contains `metadata.json`, `results.json`, `results.csv`, and a
-four-panel `figure5_style.png` generated from the CSV. Full configurations
+The output contains `metadata.json`, `results.json`, `results.csv`,
+`identifications.csv`, `matching_sensitivity.csv`, and a four-panel
+`figure5_style.png` generated from the CSV. Full configurations
 target 10,000 frames; `smoke.toml` is intentionally small for CI.
+
+`identifications.csv` contains one row per detector candidate, including the
+fit parameters, both the modern and historical tolerance-oracle decisions,
+and the nearest truth in the candidate's source frame. The iteration result
+also includes the canonical configured-radius metrics unchanged. For analysis,
+`matching_sensitivity.csv` reports detector and historical-quality recall and
+false-identification fraction at 0.5, 1.0, 1.5, and 2.0 px. These radii are a
+sensitivity analysis; none is selected to agree with the publication.
 
 Each results row contains separate detector (pre-tolerance) and accepted
 (post-tolerance) TP/FP/FN counts and rates. The Figure 5-style plot uses the

@@ -80,6 +80,29 @@ class Metrics:
         }
 
 
+def matched_rate_metrics(
+    truths: Sequence[Molecule],
+    identifications: torch.Tensor,
+    *,
+    radius: float,
+) -> dict[str, float]:
+    """Return recall and false-identification fraction for an identification set.
+
+    This small helper is intentionally independent of the canonical metrics
+    dataclass.  It is used for the documented matching-radius sensitivity
+    analysis and therefore must not alter the configured reproduction metric.
+    """
+    match = match_truths(truths, identifications, radius=radius)
+    true_positives = len(match.matched_identifications)
+    total = int(identifications.shape[0])
+    return {
+        "recall": true_positives / len(truths) if truths else 0.0,
+        "false_identification_fraction": (
+            (total - true_positives) / total if total else 0.0
+        ),
+    }
+
+
 def match_truths(
     truths: Sequence[Molecule],
     identifications: torch.Tensor,

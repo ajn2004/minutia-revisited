@@ -44,4 +44,12 @@ accepted metrics. Post-tolerance matching is recomputed after filtering to
 plots. `fit_success_fraction` is retained separately. Results also include
 per-stage timing for simulation, preprocessing/detection/NMS, localization,
 quality oracle, truth matching/metrics, replay/training, and total iteration.
+
+Each run additionally writes `identifications.csv`, with one row for every
+detector candidate and its source-frame coordinates, fitted parameters, both
+quality-oracle decisions, and nearest-truth values. `matching_sensitivity.csv`
+reports detector and historical-quality recall and false-identification
+fraction at 0.5, 1.0, 1.5, and 2.0 pixels. These are analysis radii only; the
+canonical configured `matching_radius` metric is unchanged, and no radius is
+selected to reproduce a publication result.
 Plots are generated from `results.csv`, never hard-coded.
