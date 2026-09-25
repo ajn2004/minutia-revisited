@@ -106,10 +106,10 @@ def _historical_masks(
             & (variance[:, 4] < config.sigma_variance_max)
         ),
         "fractional_uncertainty": (
-            (fractional_n < config.max_fractional_uncertainty)
-            & (fractional_b < config.max_fractional_uncertainty)
-            & (fractional_sx < config.max_fractional_uncertainty)
-            & (fractional_sy < config.max_fractional_uncertainty)
+            (fractional_n <= config.max_fractional_uncertainty)
+            & (fractional_b <= config.max_fractional_uncertainty)
+            & (fractional_sx <= config.max_fractional_uncertainty)
+            & (fractional_sy <= config.max_fractional_uncertainty)
         ),
         "position_consistency": (
             (_matlab_round(p[:, 0]) >= candidates[:, 1] - 1)

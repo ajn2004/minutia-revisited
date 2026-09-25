@@ -127,7 +127,10 @@ def match_truths(
             if int(row[0]) != truth.frame:
                 continue
             distance = hypot(float(row[1]) - truth.x, float(row[2]) - truth.y)
-            if distance <= radius:
+            # Keep the historical/tested strict boundary while avoiding a
+            # float32 representation just below the nominal radius turning an
+            # exact-boundary pair into a match.
+            if distance + 1e-6 < radius:
                 edges.append((distance, ti, ii))
     used_truth: set[int] = set()
     used_identification: set[int] = set()
